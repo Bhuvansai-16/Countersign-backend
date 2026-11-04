@@ -91,7 +91,7 @@ async def _live_custom_id(pp, order: dict) -> str | None:
         o = await pp.get_order(order["paypal_order_id"])
         return (o.get("purchase_units") or [{}])[0].get("custom_id")
     except PayPalError:
-        return order["custom_id"]  # ponytail: fall back to our stored copy if PayPal is unreachable
+        return None  # fail closed: without PayPal's copy the commitment is unverified, never STRONG
 
 
 async def _verify(pool, pp, ctx: dict, settings) -> dict | None:

@@ -230,3 +230,11 @@ async def test_dry_run_skips_post(db, settings):
     out = await dsp.submit_approved(db, pp.client, "PP-D-1001", "PROVIDE_EVIDENCE", h)
     assert out["response"] == {"dry_run": True}
     assert pp.calls_to("POST", "/v1/customer/disputes/PP-D-1001/") == []
+
+
+async def test_receipt_not_strong_when_paypal_unreachable(db, settings):
+    pp = pp_for(dispute_json())
+    await paid_order(db, settings, pp)
+    pp.routes[("GET", "/v2/checkout/orders/O1")] = httpx.Response(503, json={"name": "SERVICE_UNAVAILABLE"})
+    case = await dsp.triage(db, pp.client, "PP-D-1001", settings, now=NOW)
+    assert case["receipt_strength"] == "WEAK"
