@@ -31,3 +31,4 @@ async def test_healthz(settings):
     assert r.status_code == 200
     assert r.json()["ok"] is True
     assert r.json()["paypal_token_ttl"] == 0
+    assert r.json()["llm_model"] == ""

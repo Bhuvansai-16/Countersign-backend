@@ -63,7 +63,7 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
                 db_ok = (await dbmod.fetchrow(state.pool, "SELECT 1 AS ok"))["ok"] == 1
             except Exception:
                 db_ok = False
-        return {"ok": True, "db": db_ok, "paypal_token_ttl": state.pp.token_ttl()}
+        return {"ok": True, "db": db_ok, "paypal_token_ttl": state.pp.token_ttl(), "llm_model": settings.llm_model}
 
     from app.api import router
 
