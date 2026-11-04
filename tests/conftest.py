@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import os
 from pathlib import Path
 
@@ -7,12 +6,13 @@ import pytest
 
 from app import db as dbmod
 from app.config import load_settings
+from app.receipts import new_signing_seed
 
 BASE_ENV = {
     "PAYPAL_CLIENT_ID": "test-client",
     "PAYPAL_CLIENT_SECRET": "test-secret",
     "DATABASE_URL": "postgresql://unused/unused",
-    "MERCHANT_SIGNING_KEY": base64.b64encode(bytes(32)).decode(),
+    "MERCHANT_SIGNING_KEY": new_signing_seed(),
     "ADMIN_PASSWORD": "admin-pass",
     "SESSION_SECRET": "s" * 32,
     "MCP_AGENT_KEYS": "agt_test:test-agent-key",
