@@ -90,3 +90,16 @@ async def test_mcp_mount_requires_key(app):
         assert r.status_code == 401
         r = await c.post("/mcp", headers={"Authorization": "Bearer wrong"}, json={})
         assert r.status_code == 401
+
+
+async def test_other_agent_cannot_read_or_cancel_mandate(app, db):
+    await _seed_products(db)
+    with as_agent("agt_owner"):
+        out = _result(await app.state.mcp.call_tool("create_mandate", {
+            "instruction": "x", "max_amount": "90.00", "items": [{"sku": "THROW-SAGE", "qty": 1}]}))
+    with as_agent("agt_intruder"):
+        for tool in ("get_receipt", "get_mandate_status", "cancel_mandate"):
+            with pytest.raises(Exception, match=tool):
+                await app.state.mcp.call_tool(tool, {"mandate_id": out["mandate_id"]})
+    with as_agent("agt_owner"):
+        assert _result(await app.state.mcp.call_tool("get_mandate_status", {"mandate_id": out["mandate_id"]}))["status"] == "PENDING_CONFIRMATION"

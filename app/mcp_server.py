@@ -31,6 +31,12 @@ def _agent() -> str:
 def build_mcp(state) -> MCPServer:
     server = MCPServer("countersign", instructions=POLICY)
 
+    async def _own(mandate_id: str) -> None:
+        """Agents only see their own mandates; anything else looks like it does not exist."""
+        row = await dbmod.fetchrow(state.pool, "SELECT agent_id FROM receipts WHERE id = %s", mandate_id)
+        if not row or row["agent_id"] != _agent():
+            raise LookupError("mandate not found")
+
     @server.tool()
     async def search_products(query: str = "", max_price: float | None = None) -> dict:
         """Search the merchant catalog by name, description or attribute. Prices are USD."""
@@ -61,19 +67,19 @@ def build_mcp(state) -> MCPServer:
     @server.tool()
     async def get_mandate_status(mandate_id: str) -> dict:
         """Poll after giving the human the confirm_url: status, PayPal order, approve link and capture id."""
-        _agent()
+        await _own(mandate_id)
         return await m.mandate_status(state.pool, mandate_id)
 
     @server.tool()
     async def cancel_mandate(mandate_id: str) -> dict:
         """Cancel a mandate that the human has not confirmed yet."""
-        _agent()
+        await _own(mandate_id)
         return await m.cancel_mandate(state.pool, mandate_id)
 
     @server.tool()
     async def get_receipt(mandate_id: str) -> dict:
         """The signed intent receipt (events, seal hash) and its verification, so you can keep your own copy."""
-        _agent()
+        await _own(mandate_id)
         return await m.receipt_with_verification(state.pool, state.pp, state.settings, mandate_id, live=False)
 
     @server.resource("countersign://policy")
