@@ -80,8 +80,10 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
         return {"ok": True, "db": db_ok, "paypal_token_ttl": state.pp.token_ttl(), "llm_model": settings.llm_model}
 
     from app.api import router
+    from app.cases_api import router as cases_router
 
     app.include_router(router)
+    app.include_router(cases_router)
     return app
 
 

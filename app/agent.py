@@ -55,6 +55,27 @@ def effective_economics(case: dict) -> dict:
     return econ
 
 
+async def persist_draft(state, dispute_id: str, real: dsp.Draft, evidence: list[dict], pb: dict, case: dict) -> dict:
+    """Save a checked draft (real values, no PII tokens) with its PDF and exact payload; return the payload hash.
+    Used by the agent's build_evidence_pack tool and by the seller's draft edits."""
+    payload, pdf, pdf_sha = dsp.payload_for(real), None, None
+    if real.action == "PROVIDE_EVIDENCE":
+        rec = next((i for i in evidence if i["kind"] == "RECEIPT"), None)
+        rid = rec["data"]["receipt_id"] if rec else None
+        view = await m.receipt_with_verification(state.pool, state.pp, state.settings, rid) if rid else None
+        base = state.settings.public_base_url
+        cited = dsp.policy_lines(pb["text"], {ref for s in real.sections for ref in s.refs})
+        pdf = build_evidence_pdf({**case, "merchant_name": state.settings.merchant_name}, real, evidence,
+                                 view, f"{base}/verify/{rid}" if rid else base, cited)
+        pdf_sha = dsp.sha256_hex(pdf)
+    h = dsp.payload_hash(payload, pdf_sha)
+    await dbmod.execute(
+        state.pool, "UPDATE cases SET draft = %s, payload = %s, pdf = %s, pdf_sha256 = %s, payload_hash = %s, "
+        "check_issues = '[]', updated_at = now() WHERE dispute_id = %s",
+        Jsonb(real.model_dump()), Jsonb(payload), pdf, pdf_sha, h, dispute_id)
+    return {"payload_hash": h, "action": real.action}
+
+
 def make_tools(state, dispute_id: str, redactor: Redactor) -> list[StructuredTool]:
     """Tools bound to one dispute: the agent cannot reach any other case."""
     cache: dict = {}
@@ -120,22 +141,7 @@ def make_tools(state, dispute_id: str, redactor: Redactor) -> list[StructuredToo
                                 Jsonb(problems), dispute_id)
             return {"problems": problems}
         real = dsp.Draft.model_validate_json(redactor.restore(draft.model_dump_json()))
-        payload, pdf, pdf_sha = dsp.payload_for(real), None, None
-        if real.action == "PROVIDE_EVIDENCE":
-            rec = next((i for i in ev["evidence"] if i["kind"] == "RECEIPT"), None)
-            rid = rec["data"]["receipt_id"] if rec else None
-            view = await m.receipt_with_verification(state.pool, state.pp, state.settings, rid) if rid else None
-            base = state.settings.public_base_url
-            cited = dsp.policy_lines(pb["text"], {ref for s in real.sections for ref in s.refs})
-            pdf = build_evidence_pdf({**case, "merchant_name": state.settings.merchant_name}, real, ev["evidence"],
-                                     view, f"{base}/verify/{rid}" if rid else base, cited)
-            pdf_sha = dsp.sha256_hex(pdf)
-        h = dsp.payload_hash(payload, pdf_sha)
-        await dbmod.execute(
-            state.pool, "UPDATE cases SET draft = %s, payload = %s, pdf = %s, pdf_sha256 = %s, payload_hash = %s, "
-            "check_issues = '[]', updated_at = now() WHERE dispute_id = %s",
-            Jsonb(real.model_dump()), Jsonb(payload), pdf, pdf_sha, h, dispute_id)
-        return {"payload_hash": h, "action": real.action}
+        return await persist_draft(state, dispute_id, real, ev["evidence"], pb, case)
 
     async def submit_dispute_response(action: str, payload_hash: str) -> dict:
         """Submits the seller-approved response to PayPal. Pauses for the seller's approval before it runs."""
