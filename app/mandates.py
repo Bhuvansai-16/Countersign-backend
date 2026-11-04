@@ -12,6 +12,7 @@ from app import db as dbmod
 from app import receipts as r
 
 SHIPPING = Decimal("6.00")
+CURRENCY = "USD"  # ponytail: single-currency catalog; add products.currency if that changes
 MANDATE_TTL = timedelta(hours=24)
 METHODS = {"hosted_page_click", "agent_relayed"}
 
@@ -58,6 +59,8 @@ async def _products(pool) -> dict:
 async def create_mandate(pool, settings, *, instruction: str, max_amount: str, currency: str, attributes: dict,
                          items: list[dict], agent_id: str, agent_platform: str,
                          agent_public_key: str | None = None, agent_sig: str | None = None) -> dict:
+    if currency != CURRENCY:
+        raise MandateError(422, f"only {CURRENCY} is supported (catalog prices are {CURRENCY})")
     try:
         cap = Decimal(str(max_amount))
     except InvalidOperation:
@@ -76,8 +79,11 @@ async def create_mandate(pool, settings, *, instruction: str, max_amount: str, c
         signed = True
 
     agent = await dbmod.fetchrow(pool, "SELECT * FROM agents WHERE id = %s", agent_id)
-    if agent and agent["public_key"] and agent_public_key and agent["public_key"] != agent_public_key:
-        raise MandateError(409, "agent public key differs from the key pinned on first use")
+    if agent and agent["public_key"]:
+        if not signed:
+            raise MandateError(401, "this agent pinned a signing key; mandates must be signed")
+        if agent["public_key"] != agent_public_key:
+            raise MandateError(409, "agent public key differs from the key pinned on first use")
     await dbmod.execute(
         pool,
         "INSERT INTO agents (id, claimed_platform, public_key, last_seen) VALUES (%s, %s, %s, now()) "
@@ -210,6 +216,12 @@ async def capture(pool, pp, order_id: str) -> dict:
     resp = await pp.capture_order(order_id, request_id)
     unit = resp["purchase_units"][0]
     cap = unit["payments"]["captures"][0]
+    paid = cap.get("amount") or {}
+    if cap.get("status") != "COMPLETED" or (paid.get("value"), paid.get("currency_code")) != (_money(row["amount"]), row["currency"]):
+        await dbmod.execute(pool, "UPDATE orders SET status = %s, raw = %s WHERE paypal_order_id = %s",
+                            f"CAPTURE_{cap.get('status', 'UNKNOWN')}", Jsonb(resp), order_id)
+        raise MandateError(409, f"capture not accepted: status {cap.get('status')}, amount {paid.get('value')} "
+                                f"{paid.get('currency_code')} (expected {_money(row['amount'])} {row['currency']})")
     payer_id = (resp.get("payer") or {}).get("payer_id")
     await dbmod.execute(
         pool,
@@ -283,3 +295,32 @@ def products_json(rows: list[dict]) -> list[dict]:
     return [{"sku": p["sku"], "name": p["name"], "description": p["description"], "price": _money(Decimal(p["price"])),
              "attributes": p["attributes"], "image_url": p["image_url"]} for p in rows]
 
+
+
+def _json_safe(row: dict) -> dict:
+    return {k: (r.iso_z(v) if isinstance(v, datetime) else v) for k, v in row.items()}
+
+
+async def receipt_with_verification(pool, pp, settings, receipt_id: str, *, live: bool = True) -> dict:
+    """Receipt + events + verification. live=True reads custom_id from PayPal; else the stored copy."""
+    rec = await r.load_receipt(pool, receipt_id)
+    if not rec:
+        raise MandateError(404, "receipt not found")
+    events = await r.load_events(pool, receipt_id)
+    order = await _order_for(pool, receipt_id)
+    custom_id = None
+    if order:
+        custom_id = order["custom_id"]
+        if live:
+            pp_order = await pp.get_order(order["paypal_order_id"])
+            custom_id = (pp_order.get("purchase_units") or [{}])[0].get("custom_id")
+    pub = r.public_key_b64(r.load_key(settings.merchant_signing_key))
+    verification = r.verify_receipt(rec, events, custom_id, pub, merchant_name=settings.merchant_name)
+    return {
+        "receipt": _json_safe({k: v for k, v in rec.items() if k != "agent_sig"}),
+        "events": events,
+        "paypal_order_id": order["paypal_order_id"] if order else None,
+        "capture_id": order["capture_id"] if order else None,
+        "paypal_custom_id": custom_id,
+        "verification": {**verification, "checked_against": "paypal" if live else "local"},
+    }

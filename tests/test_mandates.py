@@ -174,3 +174,58 @@ async def test_update_tracking_delivered(db, settings):
     events = await r.load_events(db, md["mandate_id"])
     assert [e["type"] for e in events][-2:] == ["TRACKING_ADDED", "TRACKING_UPDATED"]
     assert r.verify_chain(events)
+
+
+# --- security review fixes ---
+
+@pytest.mark.anyio
+async def test_non_usd_currency_rejected(db, settings):
+    await _seed_products(db)
+    with pytest.raises(m.MandateError) as exc:
+        await _mandate(db, settings, currency="JPY")
+    assert exc.value.status == 422
+
+
+@pytest.mark.anyio
+async def test_capture_not_completed_does_not_mark_captured(db, settings):
+    import copy
+
+    await _seed_products(db)
+    pending = copy.deepcopy(CAPTURED)
+    pending["purchase_units"][0]["payments"]["captures"][0]["status"] = "PENDING"
+    pp = FakePayPal({("POST", "/v2/checkout/orders"): ORDER_CREATED, ("POST", "/v2/checkout/orders/O1/capture"): pending})
+    md = await _mandate(db, settings)
+    await m.confirm_mandate(db, pp.client, settings, md["mandate_id"], "hosted_page_click", "UA")
+    with pytest.raises(m.MandateError) as exc:
+        await m.capture(db, pp.client, "O1")
+    assert exc.value.status == 409
+    assert (await r.load_receipt(db, md["mandate_id"]))["status"] == "ORDERED"
+    assert "CAPTURED" not in [e["type"] for e in await r.load_events(db, md["mandate_id"])]
+
+
+@pytest.mark.anyio
+async def test_capture_amount_mismatch_rejected(db, settings):
+    import copy
+
+    await _seed_products(db)
+    cheap = copy.deepcopy(CAPTURED)
+    cheap["purchase_units"][0]["payments"]["captures"][0]["amount"] = {"value": "1.00", "currency_code": "USD"}
+    pp = FakePayPal({("POST", "/v2/checkout/orders"): ORDER_CREATED, ("POST", "/v2/checkout/orders/O1/capture"): cheap})
+    md = await _mandate(db, settings)
+    await m.confirm_mandate(db, pp.client, settings, md["mandate_id"], "hosted_page_click", "UA")
+    with pytest.raises(m.MandateError) as exc:
+        await m.capture(db, pp.client, "O1")
+    assert exc.value.status == 409
+    assert (await r.load_receipt(db, md["mandate_id"]))["status"] == "ORDERED"
+
+
+@pytest.mark.anyio
+async def test_pinned_agent_must_sign(db, settings):
+    await _seed_products(db)
+    key = r.load_key(r.new_signing_seed())
+    body = {"instruction": "Buy one linen throw in sage under $90", "max_amount": "90.00", "currency": "USD",
+            "attributes": {"color": "sage"}, "items": [{"sku": "THROW-SAGE", "qty": 1}]}
+    await _mandate(db, settings, agent_public_key=r.public_key_b64(key), agent_sig=r.sign(key, r.canonical(body)))
+    with pytest.raises(m.MandateError) as exc:
+        await _mandate(db, settings)  # same agent id, no signature
+    assert exc.value.status == 401
