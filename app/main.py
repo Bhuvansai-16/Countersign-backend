@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -11,6 +12,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.routing import Route
 
 from app import db as dbmod
+from app import loops
 from app.config import Settings, load_settings
 from app.mandates import MandateError
 from app.mcp_server import MCPEndpoint, build_mcp
@@ -51,6 +53,8 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
                 state.checkpointer = await stack.enter_async_context(AsyncPostgresSaver.from_conn_string(settings.database_url))
                 await state.checkpointer.setup()
             await stack.enter_async_context(mcp_server.session_manager.run())
+            loop_task = asyncio.create_task(loops.run_forever(state))
+            stack.callback(loop_task.cancel)
             yield
 
     app = FastAPI(title="Countersign API", lifespan=lifespan)
@@ -81,9 +85,11 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
 
     from app.api import router
     from app.cases_api import router as cases_router
+    from app.webhooks import router as webhooks_router
 
     app.include_router(router)
     app.include_router(cases_router)
+    app.include_router(webhooks_router)
     return app
 
 
