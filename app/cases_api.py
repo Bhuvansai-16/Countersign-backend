@@ -12,6 +12,7 @@ from app import agent as ag
 from app import auth
 from app import db as dbmod
 from app import disputes as dsp
+from app import issues
 from app.api import cs
 from app.pii import Redactor
 
@@ -184,3 +185,17 @@ async def metrics(s=Depends(cs)):
     return {"dispute_rate_90d": round(rate, 4), "txns_90d": m["txns"], "disputes_90d": m["disputes"],
             "hv_threshold": 0.015, "warn_threshold": 0.010, "open_cases": m["open_cases"], "due_48h": m["due_48h"],
             "won": m["won"], "lost": m["lost"], "dollars_defended": str(m["defended"]), "simulated_history": m["simulated"]}
+
+
+class IssueApproveIn(BaseModel):
+    payload_hash: str
+
+
+@router.get("/api/issues")
+async def list_issues(s=Depends(cs)):
+    return await issues.list_issues(s)
+
+
+@router.post("/api/issues/{issue_id}/approve")
+async def approve_issue(issue_id: str, body: IssueApproveIn, s=Depends(cs)):
+    return await issues.approve_issue(s, issue_id, body.payload_hash)

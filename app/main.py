@@ -14,6 +14,7 @@ from starlette.routing import Route
 from app import db as dbmod
 from app import loops
 from app.config import Settings, load_settings
+from app.issues import IssueError
 from app.mandates import MandateError
 from app.mcp_server import MCPEndpoint, build_mcp
 from app.paypal import PayPalClient, PayPalError
@@ -67,6 +68,10 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
     @app.exception_handler(MandateError)
     async def mandate_error(_: Request, exc: MandateError):
         return JSONResponse({"detail": exc.detail, "violations": exc.violations}, status_code=exc.status)
+
+    @app.exception_handler(IssueError)
+    async def issue_error(_: Request, exc: IssueError):
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status)
 
     @app.exception_handler(PayPalError)
     async def paypal_error(_: Request, exc: PayPalError):

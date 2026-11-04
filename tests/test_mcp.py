@@ -11,7 +11,8 @@ from tests.test_mandates import _seed_products
 
 pytestmark = pytest.mark.anyio
 
-TOOLS = {"search_products", "create_mandate", "get_mandate_status", "cancel_mandate", "get_receipt"}
+TOOLS = {"search_products", "create_mandate", "get_mandate_status", "cancel_mandate", "get_receipt",
+         "report_issue", "respond_to_proposal", "get_issue_status"}
 
 
 def _result(res):

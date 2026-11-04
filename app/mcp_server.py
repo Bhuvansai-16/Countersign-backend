@@ -8,6 +8,7 @@ from starlette.responses import JSONResponse
 
 from app import auth
 from app import db as dbmod
+from app import issues
 from app import mandates as m
 
 # Set by the authenticated /mcp mount from the agent's API key; tools never take the agent id as an argument.
@@ -81,6 +82,30 @@ def build_mcp(state) -> MCPServer:
         """The signed intent receipt (events, seal hash) and its verification, so you can keep your own copy."""
         await _own(mandate_id)
         return await m.receipt_with_verification(state.pool, state.pp, state.settings, mandate_id, live=False)
+
+    async def _issue_call(coro) -> dict:
+        try:
+            return await coro
+        except issues.IssueError as e:
+            return {"error": "REJECTED", "status": e.status, "detail": e.detail}
+
+    @server.tool()
+    async def report_issue(mandate_id: str, issue_type: str, description: str, desired_resolution: str) -> dict:
+        """Report a problem with a paid order before opening a PayPal dispute. issue_type: WRONG_ITEM, DAMAGED,
+        NOT_RECEIVED, NOT_AS_DESCRIBED or OTHER. desired_resolution: REFUND, PARTIAL_REFUND, REPLACEMENT or RETURN.
+        The seller reviews it and may send an offer; poll get_issue_status."""
+        return await _issue_call(issues.report_issue(state, mandate_id, _agent(), issue_type, description, desired_resolution))
+
+    @server.tool()
+    async def respond_to_proposal(issue_id: str, decision: str, counter_amount: str | None = None) -> dict:
+        """Answer the seller's offer: ACCEPT (a refund is paid at once), DECLINE, or COUNTER once with counter_amount
+        (a USD amount up to what was paid). Only call this after get_issue_status shows state OFFERED."""
+        return await _issue_call(issues.respond_to_proposal(state, issue_id, _agent(), decision, counter_amount))
+
+    @server.tool()
+    async def get_issue_status(issue_id: str) -> dict:
+        """Status of an issue you reported: PROPOSED (seller reviewing), OFFERED (answer it), RESOLVED or REJECTED."""
+        return await _issue_call(issues.get_issue_status(state, issue_id, _agent()))
 
     @server.resource("countersign://policy")
     def policy() -> str:
