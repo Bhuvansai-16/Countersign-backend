@@ -19,6 +19,43 @@ BASE_ENV = {
 }
 
 
+class FakePayPal:
+    """PayPalClient over httpx.MockTransport. routes: {(METHOD, path_prefix): dict | list | callable}."""
+
+    BASE = "https://api-m.sandbox.paypal.com"
+
+    def __init__(self, routes=None):
+        import httpx
+
+        from app.paypal import PayPalClient
+
+        self.routes = dict(routes or {})
+        self.calls = []
+        self.client = PayPalClient(self.BASE, "id", "secret", transport=httpx.MockTransport(self._handle))
+
+    def _handle(self, request):
+        import httpx
+
+        self.calls.append(request)
+        if request.url.path == "/v1/oauth2/token":
+            return httpx.Response(200, json={"access_token": "T", "expires_in": 32400})
+        matches = [k for k in self.routes if k[0] == request.method and request.url.path.startswith(k[1])]
+        if not matches:
+            return httpx.Response(404, json={"name": "RESOURCE_NOT_FOUND", "path": request.url.path})
+        key = max(matches, key=lambda k: len(k[1]))
+        resp = self.routes[key]
+        if isinstance(resp, list):
+            resp = resp.pop(0) if len(resp) > 1 else resp[0]
+        if callable(resp):
+            return resp(request)
+        if isinstance(resp, httpx.Response):
+            return resp
+        return httpx.Response(200, json=resp)
+
+    def calls_to(self, method, prefix):
+        return [c for c in self.calls if c.method == method and c.url.path.startswith(prefix)]
+
+
 @pytest.fixture
 def anyio_backend():
     # psycopg's async mode cannot run on Windows' default Proactor loop.

@@ -30,3 +30,4 @@ async def test_healthz(settings):
         r = await c.get("/healthz")
     assert r.status_code == 200
     assert r.json()["ok"] is True
+    assert r.json()["paypal_token_ttl"] == 0

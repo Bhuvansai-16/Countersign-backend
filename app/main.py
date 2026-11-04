@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app import db as dbmod
 from app.config import Settings, load_settings
+from app.paypal import PayPalClient
 
 
 def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
@@ -20,6 +21,9 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
     app = FastAPI(title="Countersign API", lifespan=lifespan)
     app.state.settings = settings
     app.state.pool = pool
+    app.state.pp = paypal or PayPalClient(
+        settings.paypal_base_url, settings.paypal_client_id, settings.paypal_client_secret
+    )
 
     @app.get("/healthz")
     async def healthz():
@@ -29,7 +33,7 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
                 db_ok = (await dbmod.fetchrow(app.state.pool, "SELECT 1 AS ok"))["ok"] == 1
             except Exception:
                 db_ok = False
-        return {"ok": True, "db": db_ok}
+        return {"ok": True, "db": db_ok, "paypal_token_ttl": app.state.pp.token_ttl()}
 
     return app
 
