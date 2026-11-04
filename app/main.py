@@ -6,10 +6,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.routing import Route
 
 from app import db as dbmod
 from app.config import Settings, load_settings
 from app.mandates import MandateError
+from app.mcp_server import MCPEndpoint, build_mcp
 from app.paypal import PayPalClient, PayPalError
 from app.receipts import load_key
 
@@ -31,18 +34,26 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
         key=load_key(settings.merchant_signing_key),
     )
 
+    mcp_server = build_mcp(state)
+    # Agent-key auth happens in MCPEndpoint, so the SDK's localhost-only Host check is not needed.
+    mcp_server.streamable_http_app(stateless_http=True, json_response=True,
+                                   transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         owned = state.pool is None
         if owned:
             state.pool = await dbmod.open_pool(settings.database_url)
             await dbmod.apply_schema(state.pool)
-        yield
+        async with mcp_server.session_manager.run():
+            yield
         if owned:
             await state.pool.close()
 
     app = FastAPI(title="Countersign API", lifespan=lifespan)
     app.state.cs = state
+    app.state.mcp = mcp_server
+    app.router.routes.append(Route("/mcp", endpoint=MCPEndpoint(mcp_server, settings), methods=["GET", "POST", "DELETE"]))
     app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin], allow_credentials=True,
                        allow_methods=["*"], allow_headers=["*"])
 
