@@ -1,4 +1,4 @@
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.routing import Route
 
@@ -41,14 +42,16 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        owned = state.pool is None
-        if owned:
-            state.pool = await dbmod.open_pool(settings.database_url)
-            await dbmod.apply_schema(state.pool)
-        async with mcp_server.session_manager.run():
+        async with AsyncExitStack() as stack:
+            if state.pool is None:
+                state.pool = await dbmod.open_pool(settings.database_url)
+                stack.push_async_callback(state.pool.close)
+                await dbmod.apply_schema(state.pool)
+            if state.checkpointer is None:
+                state.checkpointer = await stack.enter_async_context(AsyncPostgresSaver.from_conn_string(settings.database_url))
+                await state.checkpointer.setup()
+            await stack.enter_async_context(mcp_server.session_manager.run())
             yield
-        if owned:
-            await state.pool.close()
 
     app = FastAPI(title="Countersign API", lifespan=lifespan)
     app.state.cs = state

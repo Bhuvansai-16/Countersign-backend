@@ -84,7 +84,7 @@ def database_url():
 async def db(database_url):
     pool = await dbmod.open_pool(database_url)
     await dbmod.apply_schema(pool)
-    rows = await dbmod.fetch(pool, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+    rows = await dbmod.fetch(pool, "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT LIKE 'checkpoint%%'")
     if rows:
         names = ", ".join(f'"{r["tablename"]}"' for r in rows)
         await dbmod.execute(pool, f"TRUNCATE {names} RESTART IDENTITY CASCADE")
