@@ -132,5 +132,5 @@ async def test_public_confirm_cannot_choose_agent_relayed(db, settings):
             "instruction": "x", "max_amount": "90.00", "currency": "USD", "attributes": {},
             "items": [{"sku": "THROW-SAGE", "qty": 1}], "agent_id": "agt_test", "agent_platform": "custom"})).json()
         url = f"/api/mandates/{md['mandate_id']}/confirm"
-        assert (await c.post(url, json={"method": "agent_relayed"})).status_code == 403
+        assert (await c.post(url, json={"method": "agent_relayed"})).status_code == 401
         assert (await c.post(url, json={"method": "agent_relayed"}, headers=auth)).status_code == 200
