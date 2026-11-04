@@ -75,6 +75,11 @@ async def get_mandate(mandate_id: str, s=Depends(cs)):
 
 @router.post("/api/mandates/{mandate_id}/confirm")
 async def confirm(mandate_id: str, body: ConfirmIn, request: Request, s=Depends(cs)):
+    # Public route = the buyer's hosted page. Only the seller (seeding/demo) may record a relayed confirmation.
+    # ponytail: a page click is a weak human signal; PayPal's buyer login (PAYPAL_APPROVED) is the strong one.
+    # Unforgeable human presence would need a passkey (WebAuthn) on the confirm page.
+    if body.method != "hosted_page_click":
+        auth.require_seller(request)
     return await m.confirm_mandate(s.pool, s.pp, s.settings, mandate_id, body.method,
                                    request.headers.get("user-agent", ""))
 
