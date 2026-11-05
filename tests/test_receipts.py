@@ -158,18 +158,46 @@ def test_ap2_fields_present():
                                                    "payment_response", "merchant_agent", "timestamp"}
 
 
+def _sealed_ap2(key):
+    events = _chain(FULL, HOSTED)
+    signed = _signed_receipt(events, key)
+    return {**AP2_RECEIPT, **signed}, events
+
+
 def test_ap2_cart_signature_verifies():
     key = r.load_key(r.new_signing_seed())
-    out = r.ap2_export(AP2_RECEIPT, [], ORDER, key, "k1", MERCHANT)
+    receipt, events = _sealed_ap2(key)
+    out = r.ap2_export(receipt, events, ORDER, key, "k1", MERCHANT)
     header_b64, payload_b64, sig_b64 = out["cart_mandate"]["merchant_authorization"].split(".")
     signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
     assert r.verify_sig(r.public_key_b64(key), signing_input, base64.b64encode(_b64url_decode(sig_b64)).decode())
     claims = json.loads(_b64url_decode(payload_b64))
     import hashlib
     assert claims["cart_hash"] == hashlib.sha256(r.canonical(out["cart_mandate"]["contents"])).hexdigest()
-    assert claims["sub"] == "rcpt_1" and claims["seal_hash"] == "ab" * 32
+    assert claims["sub"] == "rcpt_1" and claims["seal_hash"] == receipt["seal_hash"]
 
 
 def test_ap2_payment_mandate_none_before_order():
     key = r.load_key(r.new_signing_seed())
     assert r.ap2_export(AP2_RECEIPT, [], None, key, "k1", MERCHANT)["payment_mandate"] is None
+
+
+def test_ap2_no_merchant_signature_for_unsealed_or_tampered_receipt():
+    key = r.load_key(r.new_signing_seed())
+    unsealed = {**AP2_RECEIPT, "seal_hash": None, "merchant_sig": None}
+    assert r.ap2_export(unsealed, _chain(["MANDATE_CREATED", "CART_SNAPSHOT"]), None, key, "k1", MERCHANT)["cart_mandate"]["merchant_authorization"] is None
+    receipt, events = _sealed_ap2(key)
+    events[1]["payload"] = {"cart": "swapped"}
+    assert r.ap2_export(receipt, events, ORDER, key, "k1", MERCHANT)["cart_mandate"]["merchant_authorization"] is None
+
+
+def test_ap2_cart_comes_from_chained_events_not_mutable_columns():
+    key = r.load_key(r.new_signing_seed())
+    payloads = {"MANDATE_CREATED": {"instruction": AP2_RECEIPT["instruction"], "constraints": AP2_RECEIPT["constraints"]},
+                "CART_SNAPSHOT": {"cart": AP2_RECEIPT["cart"]}, **HOSTED}
+    events = _chain(FULL, payloads)
+    receipt = {**AP2_RECEIPT, **_signed_receipt(events, key)}
+    receipt["cart"] = {**AP2_RECEIPT["cart"], "total": "1.00"}  # tampered column, chain untouched
+    out = r.ap2_export(receipt, events, ORDER, key, "k1", MERCHANT)
+    assert out["cart_mandate"]["contents"]["payment_request"]["details"]["total"]["amount"]["value"] == 84.0
+    assert out["cart_mandate"]["merchant_authorization"] is not None

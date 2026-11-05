@@ -129,12 +129,22 @@ def ap2_export(receipt: dict, events: list[dict], order: dict | None, key: Ed255
     PaymentRequest), cart_expiry, merchant_name}, merchant_authorization (JWT with cart_hash)};
     PaymentMandate{payment_mandate_contents{payment_mandate_id, payment_details_id, payment_details_total,
     payment_response, merchant_agent, timestamp}, user_authorization}."""
-    cons, cart = receipt["constraints"], receipt["cart"]
+    # Never act as a signing oracle: only a sealed receipt whose chain and merchant signature verify gets a JWT,
+    # and then the signed cart comes from the hash-chained events, not the mutable receipts columns.
+    iat = iso_z(receipt["created_at"])
+    seal = receipt.get("seal_hash")
+    trustworthy = (bool(seal) and verify_chain(events) and seal == seal_hash_of(events) and bool(receipt.get("merchant_sig"))
+                   and verify_sig(public_key_b64(key), seal_payload(receipt["id"], seal, merchant_name, iat), receipt["merchant_sig"]))
+    created = next((e["payload"] for e in events if e["type"] == "MANDATE_CREATED"), {}) if trustworthy else {}
+    snapshot = next((e["payload"] for e in events if e["type"] == "CART_SNAPSHOT"), {}) if trustworthy else {}
+    cons = created.get("constraints") or receipt["constraints"]
+    cart = snapshot.get("cart") or receipt["cart"]
+    instruction = created.get("instruction") or receipt["instruction"]
     cur = cons["currency"]
     item = lambda label, value: {"label": label, "amount": {"currency": cur, "value": float(value)}}  # noqa: E731
     intent = {
         "user_cart_confirmation_required": True,
-        "natural_language_description": receipt["instruction"],
+        "natural_language_description": instruction,
         "merchants": [merchant_name],
         "skus": [i["sku"] for i in cart["items"]],
         "requires_refundability": False,
@@ -156,7 +166,6 @@ def ap2_export(receipt: dict, events: list[dict], order: dict | None, key: Ed255
         "cart_expiry": cons["expires_at"],
         "merchant_name": merchant_name,
     }
-    iat = iso_z(receipt["created_at"])
     claims = {"iss": merchant_name, "sub": receipt["id"], "aud": "paypal", "iat": iat, "exp": cons["expires_at"],
               "jti": receipt["id"], "cart_hash": hashlib.sha256(canonical(contents)).hexdigest(),
               "seal_hash": receipt.get("seal_hash")}
@@ -175,7 +184,8 @@ def ap2_export(receipt: dict, events: list[dict], order: dict | None, key: Ed255
             # The buyer authorised payment by logging in to PayPal; that signature lives with PayPal, not here.
             "user_authorization": None,
         }
-    return {"intent_mandate": intent, "cart_mandate": {"contents": contents, "merchant_authorization": jws_eddsa(key, claims, kid)},
+    authorization = jws_eddsa(key, claims, kid) if trustworthy else None
+    return {"intent_mandate": intent, "cart_mandate": {"contents": contents, "merchant_authorization": authorization},
             "payment_mandate": payment}
 
 

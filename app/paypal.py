@@ -52,9 +52,10 @@ class PayPalClient:
         request_id: str | None = None,
         mock: str | None = None,
         prefer_representation: bool = False,
+        headers: dict | None = None,
     ) -> dict:
         url = path_or_url if path_or_url.startswith("http") else self.base_url + path_or_url
-        headers = {}
+        headers = dict(headers or {})
         if method == "POST" and request_id is None:
             request_id = str(uuid.uuid4())
         if request_id:

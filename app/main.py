@@ -90,11 +90,13 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
 
     from app.api import router
     from app.cases_api import router as cases_router
+    from app.sim import router as sim_router
     from app.webhooks import router as webhooks_router
 
     app.include_router(router)
     app.include_router(cases_router)
     app.include_router(webhooks_router)
+    app.include_router(sim_router)
     return app
 
 
