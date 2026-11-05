@@ -127,6 +127,7 @@ Exactly the plan's §9 "hashing and signing scheme", with prefix `cs1` instead o
 | Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | Free-tier development |
 | Groq | `https://api.groq.com/openai/v1` | Free-tier development (Qwen; **VERIFY** the exact ID via `GET /models`, likely `qwen/qwen3.6-27b`) |
 | Nebius Token Factory | `https://api.tokenfactory.nebius.com/v1/` | Eval runs and the recorded demo ($13.99 budget) |
+| Sarvam (`sarvam-105b`) | `https://api.sarvam.ai/v1` | Default since 2026-11-05 (958 credits): JSON mode and Deep Agent interrupt/resume verified (S8) |
 
 **Single-shot calls** use JSON mode (`response_format={"type":"json_object"}`) plus Pydantic validation and one retry. The Deep Agent's draft is a structured tool argument (validated by the tool's Pydantic schema), not free text.
 
