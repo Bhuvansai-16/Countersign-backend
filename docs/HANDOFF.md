@@ -1,6 +1,6 @@
 # Handoff: Countersign backend (for the next agent, e.g. Codex)
 
-Last updated 2026-11-05 by Claude. Read this first, then `docs/design.md` (what and why) and `docs/plan.md`
+Last updated 2026-11-05 (evening) by Claude. Read this first, then `docs/design.md` (what and why) and `docs/plan.md`
 (task-by-task plan). Every decision taken during the build is in `docs/build-ledger.md` (lines starting `Ruling:`).
 Hackathon deadline: **Nov 12, 2026 12:00 PT = Nov 13 01:30 IST**; target submit Nov 12 20:00 IST.
 
@@ -24,7 +24,7 @@ Branch `build/backend` (not merged to `main`, not pushed). 154 unit tests green 
 | 18 AP2 export | done |
 | 19 LLM golden eval | **in progress**: harness in `tests/test_eval_llm.py`; G1 PASSED on sarvam-105b (4 min/case). Run the rest |
 | 20 deploy (Render + Neon), README, webhook registration, E2E | **not done** |
-| Frontend (`../Countersign` repo) | **not started** |
+| Frontend (`../Countersign` repo) | **pages built** (login, confirm, cases queue, case detail, orders, issues, sandbox); type-check and lint clean; confirm page verified live (real sandbox order with our custom_id). See `../Countersign/FRONTEND.md` |
 
 ## Run it (Windows, this machine)
 
