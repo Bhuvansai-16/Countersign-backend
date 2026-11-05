@@ -68,3 +68,36 @@ def test_chat_model_uses_settings(settings):
     s = replace(settings, llm_base_url="https://example.test/v1/", llm_api_key="k", llm_model="big", llm_fast_model="small")
     assert llm.chat_model(s).model_name == "big"
     assert llm.chat_model(s, fast=True).model_name == "small"
+
+
+def test_chat_model_output_budget(settings):
+    """Reasoning models (sarvam-105b) spent the server's default 2048 tokens on hidden reasoning and returned
+    nothing; every model gets an explicit, configurable output budget."""
+    from dataclasses import replace
+
+    from langchain_core.messages import HumanMessage
+
+    def payload(s):
+        return llm.chat_model(s)._get_request_payload([HumanMessage(content="hi")])
+
+    # vLLM-based servers (Sarvam) ignore max_completion_tokens, which langchain-openai sends for max_tokens=.
+    assert payload(settings)["extra_body"]["max_tokens"] == 8192 and "max_completion_tokens" not in payload(settings)
+    assert payload(replace(settings, llm_max_tokens=16000))["extra_body"]["max_tokens"] == 16000
+
+
+def test_tool_content_is_sent_as_string(settings):
+    """vLLM-based servers (Sarvam) reject tool messages whose content is a list of blocks (deepagents' task tool)."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    call = AIMessage(content="", tool_calls=[{"name": "task", "args": {}, "id": "t1"}, {"name": "x", "args": {}, "id": "t2"}])
+    msgs = [HumanMessage(content="hi"), call, ToolMessage(content=[{"type": "text", "text": "ok"}], tool_call_id="t1"),
+            ToolMessage(content=[], tool_call_id="t2"), ToolMessage(content="", tool_call_id="t2")]
+    tools = [m for m in llm.chat_model(settings)._get_request_payload(msgs)["messages"] if m["role"] == "tool"]
+    assert [t["content"] for t in tools] == ["ok", "(no output)", "(no output)"]
+
+
+def test_max_tokens_from_env():
+    from app.config import load_settings
+    from tests.conftest import BASE_ENV
+
+    assert load_settings({**BASE_ENV, "LLM_MAX_TOKENS": "12000"}).llm_max_tokens == 12000

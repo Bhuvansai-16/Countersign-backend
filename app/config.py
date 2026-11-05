@@ -28,6 +28,7 @@ class Settings:
     llm_api_key: str = ""
     llm_model: str = ""
     llm_fast_model: str = ""
+    llm_max_tokens: int = 8192  # reasoning models need room for hidden reasoning plus the answer
     mcp_agent_keys: dict = field(default_factory=dict)  # api key -> agent id
     frontend_origin: str = "http://localhost:3000"
     public_base_url: str = "http://localhost:8000"
@@ -70,6 +71,7 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         llm_api_key=g("LLM_API_KEY", ""),
         llm_model=g("LLM_MODEL", ""),
         llm_fast_model=g("LLM_FAST_MODEL") or g("LLM_MODEL", ""),
+        llm_max_tokens=int(g("LLM_MAX_TOKENS") or Settings.llm_max_tokens),
         mcp_agent_keys=_agent_keys(g("MCP_AGENT_KEYS", "")),
         frontend_origin=g("FRONTEND_ORIGIN") or Settings.frontend_origin,
         public_base_url=(g("PUBLIC_BASE_URL") or Settings.public_base_url).rstrip("/"),
