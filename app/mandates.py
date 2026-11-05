@@ -148,8 +148,9 @@ def _order_body(settings, rec: dict, seal_hash: str) -> dict:
                        "unit_amount": amt(i["unit_price"]), "category": "PHYSICAL_GOODS"} for i in cart["items"]],
         }],
         "payment_source": {"paypal": {"experience_context": {
-            "return_url": f"{settings.public_base_url}/dev/return",
-            "cancel_url": f"{settings.public_base_url}/dev/cancel",
+            # PayPal sends the buyer back to the hosted confirm page, which captures (?token=<order id>).
+            "return_url": f"{settings.frontend_origin}/confirm/{rec['id']}",
+            "cancel_url": f"{settings.frontend_origin}/confirm/{rec['id']}?cancelled=1",
             "user_action": "PAY_NOW", "shipping_preference": "GET_FROM_FILE",
             "brand_name": settings.merchant_name[:127],
         }}},

@@ -98,6 +98,9 @@ async def test_confirm_commits_custom_id(db, settings):
     assert receipt["seal_hash"] == confirmed["hash"]
     assert body["purchase_units"][0]["custom_id"] == "cs1:" + receipt["seal_hash"]
     assert body["purchase_units"][0]["amount"]["value"] == "84.00"
+    ctx = body["payment_source"]["paypal"]["experience_context"]
+    assert ctx["return_url"] == f"{settings.frontend_origin}/confirm/{md['mandate_id']}"
+    assert ctx["cancel_url"] == f"{settings.frontend_origin}/confirm/{md['mandate_id']}?cancelled=1"
     assert [e["type"] for e in events][-1] == "ORDER_CREATED"
 
 
