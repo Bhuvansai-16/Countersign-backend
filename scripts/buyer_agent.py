@@ -50,4 +50,5 @@ async def main(instruction: str) -> None:
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # model replies may contain emoji; Windows consoles default to cp1252
     asyncio.run(main(" ".join(sys.argv[1:]) or "Buy one linen throw in sage under $90"))
