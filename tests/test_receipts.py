@@ -128,3 +128,48 @@ async def test_append_event_chains(db):
     assert [e["seq"] for e in events] == [0, 1, 2]
     assert r.verify_chain(events) is True
     assert (await r.load_receipt(db, "rcpt_1"))["id"] == "rcpt_1"
+
+
+# --- AP2 export (official field names from google-agentic-commerce/AP2 code/sdk/python/ap2/models/mandate.py) ---
+
+AP2_RECEIPT = {
+    "id": "rcpt_1", "instruction": "Buy one linen throw in sage under $90",
+    "constraints": {"max_amount": "90.00", "currency": "USD", "attributes": {"color": "sage"}, "expires_at": "2026-11-05T10:00:00Z"},
+    "cart": {"items": [{"sku": "THROW-SAGE", "name": "Linen throw - sage", "qty": 1, "unit_price": "78.00"}],
+             "item_total": "78.00", "shipping": "6.00", "total": "84.00"},
+    "created_at": datetime(2026, 11, 4, 10, 0, tzinfo=timezone.utc), "seal_hash": "ab" * 32,
+}
+ORDER = {"paypal_order_id": "O1", "capture_id": "C1", "amount": "84.00", "currency": "USD", "created_at": "2026-11-04T10:05:00Z"}
+
+
+def test_ap2_fields_present():
+    key = r.load_key(r.new_signing_seed())
+    out = r.ap2_export(AP2_RECEIPT, [], ORDER, key, "k1", MERCHANT)
+    assert set(out["intent_mandate"]) == {"user_cart_confirmation_required", "natural_language_description", "merchants",
+                                          "skus", "requires_refundability", "intent_expiry"}
+    assert set(out["cart_mandate"]) == {"contents", "merchant_authorization"}
+    contents = out["cart_mandate"]["contents"]
+    assert set(contents) == {"id", "user_cart_confirmation_required", "payment_request", "cart_expiry", "merchant_name"}
+    assert set(contents["payment_request"]) >= {"method_data", "details"}
+    assert contents["payment_request"]["details"]["total"]["amount"] == {"currency": "USD", "value": 84.0}
+    pm = out["payment_mandate"]
+    assert set(pm) == {"payment_mandate_contents", "user_authorization"}
+    assert set(pm["payment_mandate_contents"]) == {"payment_mandate_id", "payment_details_id", "payment_details_total",
+                                                   "payment_response", "merchant_agent", "timestamp"}
+
+
+def test_ap2_cart_signature_verifies():
+    key = r.load_key(r.new_signing_seed())
+    out = r.ap2_export(AP2_RECEIPT, [], ORDER, key, "k1", MERCHANT)
+    header_b64, payload_b64, sig_b64 = out["cart_mandate"]["merchant_authorization"].split(".")
+    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
+    assert r.verify_sig(r.public_key_b64(key), signing_input, base64.b64encode(_b64url_decode(sig_b64)).decode())
+    claims = json.loads(_b64url_decode(payload_b64))
+    import hashlib
+    assert claims["cart_hash"] == hashlib.sha256(r.canonical(out["cart_mandate"]["contents"])).hexdigest()
+    assert claims["sub"] == "rcpt_1" and claims["seal_hash"] == "ab" * 32
+
+
+def test_ap2_payment_mandate_none_before_order():
+    key = r.load_key(r.new_signing_seed())
+    assert r.ap2_export(AP2_RECEIPT, [], None, key, "k1", MERCHANT)["payment_mandate"] is None

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -117,6 +118,65 @@ def _b64url(b: bytes) -> str:
 def jws_eddsa(key: Ed25519PrivateKey, payload: dict, kid: str) -> str:
     signing_input = _b64url(canonical({"alg": "EdDSA", "typ": "JWT", "kid": kid})) + "." + _b64url(canonical(payload))
     return signing_input + "." + _b64url(key.sign(signing_input.encode("ascii")))
+
+
+def ap2_export(receipt: dict, events: list[dict], order: dict | None, key: Ed25519PrivateKey, kid: str,
+               merchant_name: str) -> dict:
+    """The receipt as AP2 mandates. Field names follow google-agentic-commerce/AP2
+    code/sdk/python/ap2/models/mandate.py: IntentMandate{user_cart_confirmation_required,
+    natural_language_description, merchants, skus, requires_refundability, intent_expiry};
+    CartMandate{contents: CartContents{id, user_cart_confirmation_required, payment_request (W3C
+    PaymentRequest), cart_expiry, merchant_name}, merchant_authorization (JWT with cart_hash)};
+    PaymentMandate{payment_mandate_contents{payment_mandate_id, payment_details_id, payment_details_total,
+    payment_response, merchant_agent, timestamp}, user_authorization}."""
+    cons, cart = receipt["constraints"], receipt["cart"]
+    cur = cons["currency"]
+    item = lambda label, value: {"label": label, "amount": {"currency": cur, "value": float(value)}}  # noqa: E731
+    intent = {
+        "user_cart_confirmation_required": True,
+        "natural_language_description": receipt["instruction"],
+        "merchants": [merchant_name],
+        "skus": [i["sku"] for i in cart["items"]],
+        "requires_refundability": False,
+        "intent_expiry": cons["expires_at"],
+    }
+    contents = {
+        "id": receipt["id"],
+        "user_cart_confirmation_required": True,
+        "payment_request": {
+            "method_data": [{"supported_methods": "paypal", "data": {"custom_id": custom_id_for(receipt["seal_hash"])
+                                                                     if receipt.get("seal_hash") else None}}],
+            "details": {
+                "id": receipt["id"],
+                "display_items": [item(f'{i["name"]} x{i["qty"]}', Decimal(i["unit_price"]) * i["qty"]) for i in cart["items"]]
+                                 + [item("Shipping", cart["shipping"])],
+                "total": item("Total", cart["total"]),
+            },
+        },
+        "cart_expiry": cons["expires_at"],
+        "merchant_name": merchant_name,
+    }
+    iat = iso_z(receipt["created_at"])
+    claims = {"iss": merchant_name, "sub": receipt["id"], "aud": "paypal", "iat": iat, "exp": cons["expires_at"],
+              "jti": receipt["id"], "cart_hash": hashlib.sha256(canonical(contents)).hexdigest(),
+              "seal_hash": receipt.get("seal_hash")}
+    payment = None
+    if order:
+        payment = {
+            "payment_mandate_contents": {
+                "payment_mandate_id": order["paypal_order_id"],
+                "payment_details_id": receipt["id"],
+                "payment_details_total": item("Total", order["amount"]),
+                "payment_response": {"request_id": receipt["id"], "method_name": "paypal",
+                                     "details": {"paypal_order_id": order["paypal_order_id"], "capture_id": order.get("capture_id")}},
+                "merchant_agent": "countersign",
+                "timestamp": iso_z(order["created_at"]),
+            },
+            # The buyer authorised payment by logging in to PayPal; that signature lives with PayPal, not here.
+            "user_authorization": None,
+        }
+    return {"intent_mandate": intent, "cart_mandate": {"contents": contents, "merchant_authorization": jws_eddsa(key, claims, kid)},
+            "payment_mandate": payment}
 
 
 # --- DB helpers -------------------------------------------------------------

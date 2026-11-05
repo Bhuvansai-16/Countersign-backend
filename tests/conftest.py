@@ -77,7 +77,13 @@ def database_url():
     except ImportError:
         pytest.skip("TEST_DATABASE_URL not set and pgserver not installed")
     # ponytail: embedded Postgres for local runs; CI/hosted can set TEST_DATABASE_URL instead.
-    return pgserver.get_server(Path.home() / ".countersign-pg", cleanup_mode=None).get_uri()
+    # After an unclean shutdown, crash recovery can outlast pgserver's 10 s start timeout once: retry.
+    for attempt in range(3):
+        try:
+            return pgserver.get_server(Path.home() / ".countersign-pg", cleanup_mode=None).get_uri()
+        except Exception:
+            if attempt == 2:
+                raise
 
 
 @pytest.fixture

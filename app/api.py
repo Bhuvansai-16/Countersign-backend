@@ -129,6 +129,15 @@ async def verify(receipt_id: str, s=Depends(cs)):
             "paypal_order_id": view["paypal_order_id"], "paypal_custom_id": view["paypal_custom_id"]}
 
 
+@router.get("/api/receipts/{receipt_id}/ap2")
+async def receipt_ap2(receipt_id: str, s=Depends(cs)):
+    rec = await r.load_receipt(s.pool, receipt_id)
+    if not rec:
+        raise HTTPException(404, "receipt not found")
+    order = await dbmod.fetchrow(s.pool, "SELECT * FROM orders WHERE receipt_id = %s", receipt_id)
+    return r.ap2_export(rec, await r.load_events(s.pool, receipt_id), order, s.key, s.settings.key_id, s.settings.merchant_name)
+
+
 @router.get("/.well-known/countersign-keys.json")
 async def keys(s=Depends(cs)):
     return {"keys": [{"kid": s.settings.key_id, "ed25519_pub": r.public_key_b64(s.key)}]}
