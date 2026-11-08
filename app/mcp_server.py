@@ -10,6 +10,8 @@ from app import auth
 from app import db as dbmod
 from app import issues
 from app import mandates as m
+from app import shopping
+from fastapi import HTTPException
 
 # Set by the authenticated /mcp mount from the agent's API key; tools never take the agent id as an argument.
 current_agent: ContextVar[str | None] = ContextVar("current_agent", default=None)
@@ -106,6 +108,42 @@ def build_mcp(state) -> MCPServer:
     async def get_issue_status(issue_id: str) -> dict:
         """Status of an issue you reported: PROPOSED (seller reviewing), OFFERED (answer it), RESOLVED or REJECTED."""
         return await _issue_call(issues.get_issue_status(state, issue_id, _agent()))
+
+    if state.settings.demo_enabled and state.settings.paypal_base_url == "https://api-m.sandbox.paypal.com":
+        async def shopping_call(coro):
+            try:
+                return await coro
+            except (HTTPException, m.MandateError) as exc:
+                return {"error": exc.detail, "violations": getattr(exc, "violations", [])}
+
+        @server.tool()
+        async def search_external_products(query: str, max_amount: str) -> dict:
+            """Search Channel3 for real USD products within a total budget including 6 USD sandbox shipping.
+            These are discovery candidates, not products our merchant fulfills. Returns candidate_id values."""
+            return await shopping_call(shopping.search(state, _agent(), query, max_amount))
+
+        @server.tool()
+        async def inspect_external_product(candidate_id: str) -> dict:
+            """Read a discovered retailer listing in Kernel. Returns a live view and a supplementary observation;
+            this does not verify retailer facts, make a purchase, or change the merchant catalog."""
+            async def run():
+                browser = await shopping.start_browser(state, _agent(), candidate_id)
+                observation = await shopping.inspect(state, _agent(), candidate_id)
+                return {"candidate_id": candidate_id, **browser, "observation": observation,
+                        "retailer_facts_verified": False}
+            return await shopping_call(run())
+
+        @server.tool()
+        async def stop_external_browser(candidate_id: str) -> dict:
+            """Stop the Kernel browser for this candidate after inspection to stop session usage."""
+            return await shopping_call(shopping.stop_browser(state, _agent(), candidate_id))
+
+        @server.tool()
+        async def create_external_mandate(candidate_id: str, instruction: str, max_amount: str,
+                                          attributes: dict | None = None) -> dict:
+            """Create a clearly labelled SANDBOX COPY at Maya's Loom using a Channel3 discovery snapshot.
+            This never buys from the source retailer. Give the confirm_url to the human; never confirm or pay."""
+            return await shopping_call(shopping.prepare(state, _agent(), candidate_id, instruction, max_amount, attributes or {}))
 
     @server.resource("countersign://policy")
     def policy() -> str:

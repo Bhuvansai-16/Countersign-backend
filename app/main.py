@@ -19,6 +19,7 @@ from app.mandates import MandateError
 from app.mcp_server import MCPEndpoint, build_mcp
 from app.paypal import PayPalClient, PayPalError
 from app.receipts import load_key
+from app.shopping import Providers
 
 
 @dataclass
@@ -28,6 +29,7 @@ class AppState:
     pp: PayPalClient
     key: Ed25519PrivateKey
     checkpointer: Any = None
+    providers: Any = None
 
 
 def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
@@ -36,6 +38,7 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
         pool=pool,
         pp=paypal or PayPalClient(settings.paypal_base_url, settings.paypal_client_id, settings.paypal_client_secret),
         key=load_key(settings.merchant_signing_key),
+        providers=Providers(settings),
     )
 
     mcp_server = build_mcp(state)
@@ -92,11 +95,13 @@ def create_app(settings: Settings, *, pool=None, paypal=None) -> FastAPI:
     from app.cases_api import router as cases_router
     from app.sim import router as sim_router
     from app.webhooks import router as webhooks_router
+    from app.shopping_api import router as shopping_router
 
     app.include_router(router)
     app.include_router(cases_router)
     app.include_router(webhooks_router)
     app.include_router(sim_router)
+    app.include_router(shopping_router)
     return app
 
 

@@ -1,18 +1,34 @@
 # Handoff: Countersign backend (for the next agent, e.g. Codex)
 
-Last updated 2026-11-05 (evening) by Claude. Read this first, then `docs/design.md` (what and why) and `docs/plan.md`
+## November 7 remaining plan
+
+The public receipt now shows the recorded cart, capture time, plain-language checks and an activity timeline. Technical details hold the seal, PayPal commitment, event hashes and public key. The existing $60 sandbox receipt verified STRONG against PayPal. The dispute evidence PDF already includes a QR code for this verifier when the case has a receipt. AP2 export is also implemented.
+
+1. **Live sandbox verification (Task 4).** Use an existing captured sandbox order to verify tracking. Walk a real dispute through intake, evidence submission or offer, and resolution. Confirm the PayPal action links, payloads and outcome codes against those responses. The judge demo already supports pooled cases and a labelled dry run.
+2. **Live evaluations (Task 19).** Run the remaining golden cases and record decisions, grounding checks, PII checks and costs. The recorded live result covers G1.
+3. **Hosted release (Task 20).** Add deployment configuration, host the API and database, configure and verify the webhook, seed the hosted sandbox, and run the hosted buyer-to-dispute flow. Set `PUBLIC_BASE_URL` to the hosted verifier so the evidence QR works on another device. Finish the submission README, source packaging and demo recording.
+
+See the frontend's `FRONTEND_PLAN.md` for the merchant UI walkthrough and the remaining original frontend scope.
+
+## November 6 checkpoint
+
+Public frontend entry is now `/` landing → `/shop`, with no shopper login. Shopping endpoints use signed, expiring HttpOnly visitor cookies and per-visitor candidate ownership; merchant APIs still require seller authorization. Anonymous requests with unrelated Origin headers are rejected. Provider credentials remain server-side, and the shopping feature remains sandbox-gated.
+
+Verification: 171 backend tests passed, 11 live LLM evaluations deselected; final shopping-only rerun: 16 passed. Frontend production build, TypeScript, ESLint and seven Node tests pass. Browser checks covered anonymous real search, selection, an $80.97 unconfirmed quote, desktop/mobile layouts, and the existing $85.95 captured receipt's verified return/acknowledgement, script-opened tab close and blocked-close redirect. No new payment or deployment. Development frontend was restarted after a stale layout render; a fresh merchant redirect and public shopping entry showed no browser errors. See frontend `FRONTEND_PLAN.md` for the current UI handoff. Older checkpoints below are historical.
+
+Last updated 2026-11-05 by Codex (US sandbox app connected; see verification checkpoint below). Read this first, then `docs/design.md` (what and why) and `docs/plan.md`
 (task-by-task plan). Every decision taken during the build is in `docs/build-ledger.md` (lines starting `Ruling:`).
 Hackathon deadline: **Nov 12, 2026 12:00 PT = Nov 13 01:30 IST**; target submit Nov 12 20:00 IST.
 
 ## Status
 
-Branch `build/backend` (not merged to `main`, not pushed). 154 unit tests green (`pytest`), plus an LLM eval
+Branch `build/backend` (not merged to `main`, not pushed). 155 unit tests green (`pytest`), plus an LLM eval
 (`pytest -m llm`) in progress.
 
 | Plan task | State |
 |---|---|
 | 1-3 skeleton, DB schema, PayPal client | done |
-| 4 sandbox spikes S1-S7, S9 | **not done**: blocked on a US sandbox app (see below). Only `scripts/spikes/common.py`, `s8_llm.py`, `s8_deepagent.py` exist; write s1-s7 from `docs/plan.md` Task 4 |
+| 4 sandbox spikes S1-S7, S9 | **incomplete**: US app OAuth, buyer confirmation, PayPal approval, capture and STRONG receipt verification pass. Tracking and the dispute lifecycle remain unverified. Only `scripts/spikes/common.py`, `s8_llm.py`, `s8_deepagent.py` exist; write the remaining spikes from `docs/plan.md` Task 4 |
 | 5-7 receipts, mandates/checkout, HTTP routes | done (plus security-review fixes) |
 | 8 PII redaction + LLM client | done; S8 passed on Sarvam |
 | 9 MCP server + buyer agent | done; buyer agent verified live on Sarvam over HTTP MCP |
@@ -44,16 +60,30 @@ PUBLIC_BASE_URL=http://localhost:8010 uv run --env-file .env python scripts/buye
   After an unclean shutdown the first start can time out during crash recovery; just retry. The dev DB port changes on
   restart: refresh `DATABASE_URL` in `.env` with
   `python -c "import pgserver,pathlib;print(pgserver.get_server(pathlib.Path.home()/'.countersign-pg-dev',cleanup_mode=None).get_uri())"`.
-- `.env` (git-ignored) holds: PayPal sandbox creds (**India-region app, must be replaced**), MERCHANT_SIGNING_KEY,
+- `.env` (git-ignored) holds: PayPal sandbox creds (**US Countersign app, replaced Nov 5**), MERCHANT_SIGNING_KEY,
   SESSION_SECRET, ADMIN_PASSWORD, MCP_AGENT_KEYS (`agt_demo:<key>`), DATABASE_URL, SARVAM_API_KEY, LLM_* (Sarvam).
   Never print or commit it.
 
 ## Next steps, in order
 
-1. **Owner: US sandbox.** The default sandbox accounts are region IN. In developer.paypal.com (Sandbox): create a US
-   Business account and 2-3 US Personal accounts, create an app "Countersign" linked to the US business account, tick
-   Customer disputes + Transaction search, then put its client ID/secret into `.env`. Agents must not create accounts or
-   type passwords; the owner does this.
+Shopping demo added Nov 5: see `docs/SHOPPING_DEMO.md`. `/shop` provides chat, real Channel3 cards and a Kernel
+live view inside the seller console. Backend-only provider keys are configured locally and `DEMO_ENABLED=true`.
+Live search, browser execution and unpaid cart validation pass; suite is **169 passed**, 11 live LLM evaluations
+deselected. New `/api/demo/shopping/*` endpoints and four external MCP tools are sandbox gated. Imported products
+are explicitly labelled sandbox copies, never purchases from source retailers. Brave live chat search, numbered
+follow-up and $85.95 cart preparation pass; `rcpt_6ee09dc4ef0996cbef375500` is still unpaid with no PayPal order.
+Kernel video rendered separately; the initial embedded view was blank, so use Open browser separately if needed.
+The tested source buy link displayed a security check; recognized checks now return an inspection error.
+
+1. **Continue from the captured US order.** The US Business account `sb-iaenv53656392@business.example.com` and two US Personal
+   accounts now exist. The "Countersign" merchant app is linked to that business account; Customer disputes and
+   Transaction search are enabled and its credentials are in the ignored `.env`. API restarted on 8010; frontend on
+   3000. `http://localhost:3000/confirm/rcpt_68bf79004ca5cdd170749995` now shows **Paid. Thank you!** ($84 sage throw,
+   cap $90). The owner approved as Buyer A `sb-v3mdl53715004@personal.example.com`. US order `2NG228202S383952F` is
+   **COMPLETED**, capture `3L906348KK120212Y`; live receipt verification is **STRONG**, all four integrity checks true.
+   Repeating capture returns the same capture ID. Buyer B `sb-pprgt53715166@personal.example.com` remains in reserve.
+   Next: add tracking and verify the sandbox dispute lifecycle. No buyer passwords were read or changed. Old
+   India-app orders remain in the DB and may be unreadable with the new app. PowerShell runbook: `docs/RUN_LOCAL.md`.
 2. **Spikes (Task 4).** Write and run `scripts/spikes/s1..s7` exactly as `docs/plan.md` Task 4 describes; results
    append to `docs/verified.md`. Then reconcile: `disputes.ACTION_REL` rel names, the provide-evidence `input` schema in
    `disputes.payload_for`, the `dispute_outcome.outcome_code` values in `webhooks.OUTCOME_STATE`, the tracker PATCH body
@@ -70,6 +100,20 @@ PUBLIC_BASE_URL=http://localhost:8010 uv run --env-file .env python scripts/buye
    `Countersign` repo before submitting (Devpost wants all source in the submitted repo).
 
 ## Things that bit us (do not re-learn them)
+
+- **Live capture fix (Nov 5):** PayPal rejected the empty capture POST with UNSUPPORTED_MEDIA_TYPE because httpx did
+  not send Content-Type. `capture_order` now sends `json={}`; the new header regression test failed before the fix.
+  Final full suite: **155 passed, 11 LLM deselected**. The first full run had 87 test-DB setup errors; reconnecting the
+  existing test PostgreSQL after recovery resolved them without a fixture/code change.
+- **Next.js dev worker:** `/login` loaded but `/confirm/[id]` returned 500 (failed static-path worker, EPIPE).
+  Restarting only this project's frontend restored the same return URL to 200; no frontend source changes.
+
+- **Nov 5 US setup checkpoint:** 154 backend tests pass (11 live LLM cases deselected); frontend type-check and lint
+  pass with `node node_modules/typescript/bin/tsc --noEmit` and `node node_modules/eslint/bin/eslint.js .`.
+  The shell's `npm`/`npx` shims point at missing roaming files, so use the installed project executables directly.
+  The dev database crashed and recovered on port 50168; `.env` was updated to that port without clearing data.
+  API `/healthz` reports DB healthy; products, cases, orders, issues and metrics return 200. Live mandate validation
+  rejects OVER_CAP and ATTRIBUTE_MISMATCH (422). PayPal OAuth and seller dispute list return 200 (0 disputes).
 
 - **Sarvam (vLLM) quirks, fixed in `app/llm.py`:** langchain-openai sends `max_completion_tokens`, which vLLM ignores,
   so the default 2048 tokens were spent on hidden reasoning and replies came back empty. We send plain `max_tokens`

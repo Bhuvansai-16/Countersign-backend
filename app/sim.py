@@ -17,10 +17,23 @@ router = APIRouter(dependencies=[Depends(auth.require_seller)])
 SIM_ACTIONS = {"require-evidence", "adjudicate", "escalate"}
 
 
+def _is_sandbox(s):
+    return s.settings.paypal_base_url.rstrip("/") == "https://api-m.sandbox.paypal.com"
+
+
 def _sim_enabled(s=Depends(cs)):
-    if not s.settings.simulator_enabled:
+    if not _is_sandbox(s) or not s.settings.simulator_enabled:
         raise HTTPException(404)
     return s
+
+
+@router.get("/api/sim/status")
+async def sim_status(s=Depends(cs)):
+    sandbox = _is_sandbox(s)
+    return {
+        "simulator_enabled": sandbox and s.settings.simulator_enabled,
+        "prepared_cases_enabled": sandbox and s.settings.demo_enabled and bool(s.settings.demo_dispute_pool),
+    }
 
 
 def _b64url(obj: dict) -> str:
@@ -67,7 +80,7 @@ async def simulate(dispute_id: str, action: str, body: dict, s=Depends(_sim_enab
 
 
 def _demo_enabled(s=Depends(cs)):
-    if not s.settings.demo_enabled:
+    if not _is_sandbox(s) or not s.settings.demo_enabled:
         raise HTTPException(404)
     return s
 

@@ -32,6 +32,13 @@ async def test_post_has_request_id():
     assert fake.calls_to("POST", "/v2/checkout/orders/O1/capture")[0].headers["PayPal-Request-Id"] == "rid-1"
 
 
+async def test_capture_sends_json_content_type():
+    fake = FakePayPal({("POST", "/v2/checkout/orders/O1/capture"): {"status": "COMPLETED"}})
+    await fake.client.capture_order("O1", request_id="rid-1")
+    sent = fake.calls_to("POST", "/v2/checkout/orders/O1/capture")[0]
+    assert sent.headers.get("Content-Type") == "application/json"
+
+
 async def test_post_without_request_id_gets_one():
     fake = FakePayPal({("POST", "/v1/customer/disputes/D1/require-evidence"): {}})
     await fake.client.request("POST", "/v1/customer/disputes/D1/require-evidence", json={})

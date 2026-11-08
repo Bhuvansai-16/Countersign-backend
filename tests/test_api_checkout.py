@@ -3,6 +3,7 @@ import json
 import httpx
 import pytest
 
+from app import db as dbmod
 from app import receipts as r
 from app.main import create_app
 from tests.conftest import FakePayPal
@@ -53,6 +54,7 @@ async def test_seller_route_needs_token(db, settings):
 
 async def test_mandate_confirm_capture_verify_flow(db, settings):
     await _seed_products(db)
+    await dbmod.execute(db, "UPDATE products SET name = %s WHERE sku = %s", "Linen & <Sage>", "THROW-SAGE")
     async with client(create_app(settings, pool=db, paypal=stateful_pp().client)) as c:
         auth = await login(c)
         md = (await c.post("/api/mandates", headers=auth, json={
@@ -72,6 +74,10 @@ async def test_mandate_confirm_capture_verify_flow(db, settings):
         assert orders[0]["receipt_strength"] == "STRONG"
         page = await c.get(f"/verify/{mid}")
         assert page.status_code == 200 and "STRONG" in page.text
+        assert "USD 84.00" in page.text and "Payment captured" in page.text
+        assert "Linen &amp; &lt;Sage&gt;" in page.text and "Linen & <Sage>" not in page.text
+        assert "Buy one linen throw in sage under $90" not in page.text
+        assert "<summary>Technical details</summary>" in page.text
 
 
 async def test_mandate_violation_422(db, settings):

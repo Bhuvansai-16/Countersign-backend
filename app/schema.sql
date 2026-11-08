@@ -7,6 +7,10 @@ CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY, claimed_platform TEXT NOT NULL, public_key TEXT,
   first_seen TIMESTAMPTZ NOT NULL DEFAULT now(), last_seen TIMESTAMPTZ);
 
+CREATE TABLE IF NOT EXISTS shopping_candidates (
+  id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, snapshot JSONB NOT NULL,
+  browser JSONB, observation JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+
 CREATE TABLE IF NOT EXISTS receipts (
   id TEXT PRIMARY KEY,
   status TEXT NOT NULL CHECK (status IN ('PENDING_CONFIRMATION','CONFIRMED','ORDERED','CAPTURED','CANCELLED','EXPIRED')),

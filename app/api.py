@@ -147,22 +147,115 @@ async def keys(s=Depends(cs)):
 async def verify_page(receipt_id: str, s=Depends(cs)):
     view = await m.receipt_with_verification(s.pool, s.pp, s.settings, receipt_id)
     v, rec = view["verification"], view["receipt"]
-    checks = "".join(f"<li>{escape(k)}: <b>{'yes' if v[k] else 'no'}</b></li>"
-                     for k in ("chain_ok", "seal_ok", "sig_ok", "custom_id_match"))
-    events = "".join(f"<tr><td>{e['seq']}</td><td>{escape(e['type'])}</td><td>{escape(e['at'])}</td>"
-                     f"<td><code>{e['hash'][:16]}…</code></td></tr>" for e in view["events"])
-    return f"""<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+    check_labels = {
+        "chain_ok": "Event history is intact",
+        "seal_ok": "Receipt seal matches the recorded approval",
+        "sig_ok": "Merchant signature is valid",
+        "custom_id_match": "PayPal order carries the same receipt seal",
+    }
+    checks = "".join(
+        f"<li>{label}<b class={'pass' if v[key] else 'fail'}>{'Passed' if v[key] else 'Not verified'}</b></li>"
+        for key, label in check_labels.items()
+    )
+    event_labels = {
+        "MANDATE_CREATED": "Shopping request recorded",
+        "CART_SNAPSHOT": "Cart recorded",
+        "PRODUCT_DISCOVERY": "Source listing recorded",
+        "BUYER_CONFIRMED": "Buyer confirmed the purchase",
+        "ORDER_CREATED": "PayPal order created",
+        "PAYPAL_APPROVED": "Buyer approved in PayPal",
+        "CAPTURED": "Payment captured",
+    }
+    events = "".join(
+        f"<li><span>{escape(event_labels.get(e['type'], e['type'].replace('_', ' ').capitalize()))}</span>"
+        f"<time datetime=\"{escape(e['at'])}\">{escape(e['at'].replace('T', ' ').removesuffix('Z'))} UTC</time></li>"
+        for e in view["events"]
+    )
+    hashes = "".join(
+        f"<li>{escape(str(e['seq']))} · {escape(e['type'])} <code>{escape(e['hash'])}</code></li>"
+        for e in view["events"]
+    )
+    cart = rec["cart"]
+    currency = escape(rec["constraints"]["currency"])
+    items = "".join(
+        f"<li>{escape(item['name'])}<span>× {escape(str(item['qty']))}</span></li>"
+        for item in cart["items"]
+    )
+    captured_at = next((e["at"] for e in reversed(view["events"]) if e["type"] == "CAPTURED"), None)
+    recorded_at = captured_at or rec["created_at"]
+    date_label = "Capture recorded" if captured_at else "Receipt created"
+    date_value = escape(recorded_at.replace("T", " ").removesuffix("Z"))
+    paypal_order = escape(view["paypal_order_id"] or "Pending")
+    checked_against = "Checked against PayPal." if view["paypal_order_id"] else "PayPal order pending."
+    return f"""<!doctype html><html lang="en"><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
 <title>Countersign receipt</title>
-<style>body{{font:15px system-ui;max-width:720px;margin:2rem auto;padding:0 16px}}code{{word-break:break-all}}
-td{{padding:2px 8px}}.badge{{font-weight:700;padding:2px 8px;border:1px solid}}</style>
-<h1>Receipt {escape(receipt_id)}</h1>
-<p>Strength: <span class=badge>{escape(v['strength'])}</span> (checked against {escape(v['checked_against'])})</p>
-<ul>{checks}</ul>
-<p>Seal hash: <code>{escape(rec.get('seal_hash') or '-')}</code><br>
-PayPal order: <code>{escape(view['paypal_order_id'] or '-')}</code><br>
-PayPal custom_id: <code>{escape(view['paypal_custom_id'] or '-')}</code></p>
-<table><tr><th>#</th><th>Event</th><th>At</th><th>Hash</th></tr>{events}</table>
-<p>Public key: <a href="/.well-known/countersign-keys.json">countersign-keys.json</a></p>"""
+<style>
+  * {{ box-sizing: border-box }}
+  body {{ margin: 0; background: #f5f3eb; color: #252d25; font: 15px/1.55 system-ui, sans-serif }}
+  main {{ max-width: 1600px; margin: auto; padding: 32px }}
+  h1, h2 {{ font: 400 28px/1.2 Georgia, serif; margin: 0 0 18px }}
+  h1 {{ font-size: 38px; margin-bottom: 8px }}
+  .reference, dt, time {{ color: #626b5e }}
+  .reference {{ margin: 0 0 24px }}
+  .grid {{ display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px }}
+  section, details {{ background: #fffef9; border: 1px solid #dcded1; border-radius: 18px; padding: 24px }}
+  section ul, ol {{ padding: 0; margin: 0; list-style: none }}
+  .rows li {{ display: flex; justify-content: space-between; gap: 16px; padding: 11px 0; border-bottom: 1px solid #dcded1 }}
+  .rows li:last-child {{ border-bottom: 0 }}
+  .rows li, time {{ overflow-wrap: anywhere }}
+  .total {{ display: flex; justify-content: space-between; gap: 16px; font-size: 19px; margin: 18px 0 }}
+  dl {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 12px; margin: 0 }}
+  dt {{ font-size: 13px }}
+  dd {{ margin: 4px 0 0 }}
+  .pass {{ color: #31553d }}
+  .fail {{ color: #9a3e22 }}
+  .badge {{ display: inline-block; background: #e8eddf; padding: 3px 9px; border-radius: 6px; font-weight: 700 }}
+  time {{ font-size: 13px }}
+  .activity {{ grid-column: 1 / -1 }}
+  details {{ margin-top: 20px }}
+  summary {{ cursor: pointer; font-weight: 600 }}
+  code {{ overflow-wrap: anywhere }}
+  a {{ color: #31553d }}
+  @media (max-width: 760px) {{
+    main {{ padding: 20px 16px }}
+    .grid {{ grid-template-columns: 1fr }}
+    section, details {{ padding: 18px }}
+    .timeline li {{ flex-wrap: wrap; gap: 3px 16px }}
+  }}
+</style>
+<main>
+  <h1>Purchase receipt</h1>
+  <p class="reference"><code>{escape(receipt_id)}</code></p>
+  <div class="grid">
+    <section>
+      <h2>Order summary</h2>
+      <ul class="rows">{items}<li>Shipping <span>{currency} {escape(cart['shipping'])}</span></li></ul>
+      <p class="total">Total <strong>{currency} {escape(cart['total'])}</strong></p>
+      <dl>
+        <div><dt>PayPal order</dt><dd><code>{paypal_order}</code></dd></div>
+        <div><dt>{date_label}</dt><dd><time datetime="{escape(recorded_at)}">{date_value} UTC</time></dd></div>
+      </dl>
+    </section>
+    <section>
+      <h2>Verification</h2>
+      <p><span class="badge">{escape(v['strength'])}</span> {checked_against}</p>
+      <ul class="rows">{checks}</ul>
+    </section>
+    <section class="activity">
+      <h2>Activity timeline</h2>
+      <ol class="rows timeline">{events}</ol>
+    </section>
+  </div>
+  <details>
+    <summary>Technical details</summary>
+    <p>Seal hash <code>{escape(rec.get('seal_hash') or '-')}</code></p>
+    <p>PayPal custom_id <code>{escape(view['paypal_custom_id'] or '-')}</code></p>
+    <h2>Event hashes</h2>
+    <ol>{hashes}</ol>
+    <p><a href="/.well-known/countersign-keys.json">Public verification key</a></p>
+  </details>
+</main></html>"""
 
 
 @router.get("/dev/return", response_class=HTMLResponse)

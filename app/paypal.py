@@ -84,7 +84,7 @@ class PayPalClient:
 
     async def capture_order(self, order_id: str, request_id: str, mock: str | None = None) -> dict:
         return await self.request(
-            "POST", f"/v2/checkout/orders/{order_id}/capture", request_id=request_id, mock=mock, prefer_representation=True
+            "POST", f"/v2/checkout/orders/{order_id}/capture", json={}, request_id=request_id, mock=mock, prefer_representation=True
         )
 
     async def track_order(self, order_id: str, body: dict, request_id: str) -> dict:

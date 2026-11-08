@@ -38,6 +38,8 @@ class Settings:
     demo_dispute_pool: tuple = ()
     key_id: str = "k1"
     merchant_name: str = "Maya's Loom (sandbox)"
+    channel3_api_key: str = ""
+    kernel_api_key: str = ""
 
 
 def _flag(env: Mapping[str, str], name: str) -> bool:
@@ -79,4 +81,6 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         allow_simulated_webhooks=_flag(env, "ALLOW_SIMULATED_WEBHOOKS"),
         demo_enabled=_flag(env, "DEMO_ENABLED"),
         demo_dispute_pool=tuple(filter(None, (p.strip() for p in g("DEMO_DISPUTE_POOL", "").split(",")))),
+        channel3_api_key=g("CHANNEL3_API_KEY", ""),
+        kernel_api_key=g("KERNEL_API_KEY", ""),
     )

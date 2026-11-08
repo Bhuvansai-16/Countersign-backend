@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import secrets
 import time
 
 from fastapi import HTTPException, Request
@@ -24,6 +25,26 @@ def check_token(secret: str, token: str) -> bool:
         return json.loads(base64.urlsafe_b64decode(body))["exp"] > time.time()
     except (ValueError, KeyError):
         return False
+
+
+def make_shopping_token(secret: str, ttl_s: int = 86400) -> str:
+    body = base64.urlsafe_b64encode(json.dumps({"sub": "visitor_" + secrets.token_hex(16),
+                                              "exp": int(time.time()) + ttl_s}).encode()).decode()
+    # Separate signing context: a shopping cookie must never validate as a seller token.
+    return f"{body}.{_sig(secret, 'shopping:' + body)}"
+
+
+def shopping_identity(secret: str, token: str) -> str | None:
+    try:
+        body, _, signature = token.partition(".")
+        if not body or not hmac.compare_digest(signature, _sig(secret, "shopping:" + body)):
+            return None
+        data = json.loads(base64.urlsafe_b64decode(body))
+        if data["exp"] > time.time() and isinstance(data["sub"], str) and data["sub"].startswith("visitor_"):
+            return data["sub"]
+    except (ValueError, KeyError, TypeError):
+        pass
+    return None
 
 
 def _bearer(header: str | None) -> str:

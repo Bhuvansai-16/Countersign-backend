@@ -23,9 +23,16 @@ def auth(settings):
     return {"Authorization": "Bearer " + make_token(settings.session_secret)}
 
 
-async def test_sim_routes_404_when_disabled(db, settings):
+@pytest.mark.parametrize("live", [False, True])
+async def test_sim_routes_404_when_disabled(db, settings, live):
+    if live:
+        settings = replace(settings, paypal_base_url="https://api-m.paypal.com",
+                           simulator_enabled=True, demo_enabled=True, demo_dispute_pool=("PP-D-1001",))
     app = create_app(settings, pool=db, paypal=FakePayPal().client)
     async with client(app) as c:
+        assert (await c.get("/api/sim/status")).status_code == 401
+        status = await c.get("/api/sim/status", headers=auth(settings))
+        assert status.json() == {"simulator_enabled": False, "prepared_cases_enabled": False}
         assert (await c.post("/api/sim/disputes/PP-D-1001/adjudicate", headers=auth(settings), json={})).status_code == 404
         assert (await c.post("/api/demo/run", headers=auth(settings))).status_code == 404
 
@@ -36,6 +43,8 @@ async def test_sim_action_uses_paypal_link(db, settings):
     pp = pp_for(d)
     app = create_app(replace(settings, simulator_enabled=True), pool=db, paypal=pp.client)
     async with client(app) as c:
+        status = await c.get("/api/sim/status", headers=auth(settings))
+        assert status.json() == {"simulator_enabled": True, "prepared_cases_enabled": False}
         r = await c.post("/api/sim/disputes/PP-D-1001/adjudicate", headers=auth(settings),
                          json={"adjudication_outcome": "SELLER_FAVOR"})
     assert r.status_code == 200
@@ -79,6 +88,8 @@ async def test_demo_pool_then_dry_run(db, settings, monkeypatch):
     pp = pp_for(dispute_json())
     app = create_app(replace(settings, demo_enabled=True, demo_dispute_pool=("PP-D-1001",)), pool=db, paypal=pp.client)
     async with client(app) as c:
+        status = await c.get("/api/sim/status", headers=auth(settings))
+        assert status.json() == {"simulator_enabled": False, "prepared_cases_enabled": True}
         first = (await c.post("/api/demo/run", headers=auth(settings))).json()
         await dbmod.execute(db, "UPDATE cases SET state = 'WON', outcome = 'RESOLVED_SELLER_FAVOUR'")
         second = (await c.post("/api/demo/run", headers=auth(settings))).json()
