@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app import agent as ag
 from app import auth
@@ -14,10 +14,12 @@ from app import db as dbmod
 from app import disputes as dsp
 from app import issues
 from app.api import cs
+from app.paypal import PayPalError
 from app.pii import Redactor
 
 router = APIRouter(dependencies=[Depends(auth.require_seller)])
-CLOSED = ("SUBMITTED", "WON", "LOST", "ACCEPTED", "EXPIRED", "MANUAL")
+CLOSED = ("SUBMITTED", "WON", "LOST", "ACCEPTED", "EXPIRED", "MANUAL")  # nothing left for the seller to do
+FINAL = ("WON", "LOST", "ACCEPTED", "EXPIRED", "MANUAL")  # SUBMITTED stays open until PayPal rules
 EV_KEY = {"FIGHT": "fight", "OFFER": "offer", "ACCEPT": "accept"}
 
 
@@ -73,10 +75,19 @@ async def cases(state: str | None = None, reason: str | None = None, due_before:
     return out
 
 
+async def _fresh_raw(s, dispute_id: str) -> dict:
+    """The dispute as PayPal sees it now (allowed actions change as the case moves); stored copy if PayPal is down."""
+    try:
+        await dsp.ingest(s.pool, s.pp, dispute_id, s.settings)
+    except PayPalError:
+        pass
+    return (await dbmod.fetchrow(s.pool, "SELECT raw FROM disputes WHERE dispute_id = %s", dispute_id))["raw"]
+
+
 @router.get("/api/cases/{dispute_id}")
 async def case_detail(dispute_id: str, s=Depends(cs)):
     row = await _case(s, dispute_id)
-    raw = (await dbmod.fetchrow(s.pool, "SELECT raw FROM disputes WHERE dispute_id = %s", dispute_id))["raw"]
+    raw = await _fresh_raw(s, dispute_id)
     evidence = row["evidence"] or []
     hidden = {"pdf", "payload", "evidence", "evidence_gaps", "draft", "check_issues", "economics", "pending_action", "payload_hash"}
     return {
@@ -89,7 +100,27 @@ async def case_detail(dispute_id: str, s=Depends(cs)):
         "pending_action": row["pending_action"], "payload_hash": row["payload_hash"],
         "pdf_url": f"/api/cases/{dispute_id}/pdf" if row["pdf"] else None,
         "allowed_actions": [ln["rel"] for ln in raw.get("links", []) if ln.get("rel") in dsp.ACTION_REL.values()],
+        "can_escalate": any(ln.get("rel") == "escalate" for ln in raw.get("links", [])),
+        "paypal": {"status": raw.get("status"), "stage": raw.get("dispute_life_cycle_stage"),
+                   "outcome": (raw.get("dispute_outcome") or {}).get("outcome_code")},
     }
+
+
+class EscalateIn(BaseModel):
+    note: str = Field(min_length=1, max_length=2000)
+
+
+@router.post("/api/cases/{dispute_id}/escalate")
+async def escalate(dispute_id: str, body: EscalateIn, s=Depends(cs)):
+    """Seller-initiated: PayPal accepts evidence only once an inquiry becomes a claim."""
+    await _case(s, dispute_id)
+    d = await s.pp.get_dispute(dispute_id)
+    link = next((ln for ln in d.get("links", []) if ln.get("rel") == "escalate"), None)
+    if not link:
+        raise HTTPException(409, f"PayPal does not offer escalation on this dispute now (status {d.get('status')})")
+    await s.pp.post_link(link["href"], json={"note": body.note}, request_id=f"escalate-{dispute_id}")
+    raw = await _fresh_raw(s, dispute_id)
+    return {"escalated": True, "status": raw.get("status"), "stage": raw.get("dispute_life_cycle_stage")}
 
 
 @router.post("/api/cases/{dispute_id}/analyze")
@@ -174,16 +205,17 @@ async def metrics(s=Depends(cs)):
         "       (SELECT count(*) FROM disputes WHERE created_at_pp >= %s) "
         "     + (SELECT count(*) FROM history_txns WHERE at >= %s AND disputed) AS disputes, "
         "       (SELECT count(*) FROM cases WHERE state <> ALL(%s)) AS open_cases, "
+        "       (SELECT count(*) FROM cases WHERE state = 'SUBMITTED') AS awaiting_paypal, "
         "       (SELECT count(*) FROM cases c JOIN disputes d USING (dispute_id) WHERE c.state <> ALL(%s) "
         "          AND d.due_at < %s) AS due_48h, "
         "       (SELECT count(*) FROM cases WHERE state = 'WON') AS won, "
         "       (SELECT count(*) FROM cases WHERE state = 'LOST') AS lost, "
         "       (SELECT COALESCE(sum(d.amount), 0) FROM cases c JOIN disputes d USING (dispute_id) WHERE c.state = 'WON') AS defended, "
         "       EXISTS (SELECT 1 FROM history_txns WHERE simulated) AS simulated",
-        since, since, since, since, list(CLOSED), list(CLOSED), now + timedelta(hours=48))
+        since, since, since, since, list(FINAL), list(CLOSED), now + timedelta(hours=48))
     rate = m["disputes"] / m["txns"] if m["txns"] else 0.0
     return {"dispute_rate_90d": round(rate, 4), "txns_90d": m["txns"], "disputes_90d": m["disputes"],
-            "hv_threshold": 0.015, "warn_threshold": 0.010, "open_cases": m["open_cases"], "due_48h": m["due_48h"],
+            "hv_threshold": 0.015, "warn_threshold": 0.010, "open_cases": m["open_cases"], "awaiting_paypal": m["awaiting_paypal"], "due_48h": m["due_48h"],
             "won": m["won"], "lost": m["lost"], "dollars_defended": str(m["defended"]), "simulated_history": m["simulated"]}
 
 

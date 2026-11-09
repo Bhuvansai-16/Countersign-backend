@@ -154,3 +154,47 @@ async def test_metrics_counts_history(db, settings):
     assert mtr["txns_90d"] == 11  # 10 simulated + 1 captured order
     assert mtr["hv_threshold"] == 0.015 and mtr["warn_threshold"] == 0.010
     assert mtr["simulated_history"] is True and mtr["open_cases"] == 1
+
+
+# --- live-run fixes: fresh PayPal actions, escalate to claim, submitted cases stay open ---
+
+INQUIRY_LINKS = [{"rel": "self", "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-D-1001", "method": "GET"},
+                 {"rel": "make_offer", "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-D-1001/make-offer", "method": "POST"},
+                 {"rel": "escalate", "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-D-1001/escalate", "method": "POST"}]
+
+
+async def test_case_detail_shows_current_paypal_actions(db, settings):
+    app, c, auth, pp = await awaiting_case(db, settings)
+    pp.routes[("GET", "/v1/customer/disputes/PP-D-1001")] = dispute_json(dispute_life_cycle_stage="INQUIRY", links=INQUIRY_LINKS)
+    async with c:
+        detail = (await c.get("/api/cases/PP-D-1001", headers=auth)).json()
+    assert "provide_evidence" not in detail["allowed_actions"] and "make_offer" in detail["allowed_actions"]
+    assert detail["can_escalate"] is True and detail["paypal"]["stage"] == "INQUIRY"
+
+
+async def test_escalate_uses_paypal_link(db, settings):
+    import json as _json
+
+    app, c, auth, pp = await awaiting_case(db, settings)
+    pp.routes[("GET", "/v1/customer/disputes/PP-D-1001")] = dispute_json(dispute_life_cycle_stage="INQUIRY", links=INQUIRY_LINKS)
+    pp.routes[("POST", "/v1/customer/disputes/PP-D-1001/escalate")] = {"links": []}
+    async with c:
+        r = await c.post("/api/cases/PP-D-1001/escalate", headers=auth, json={"note": "Escalating to submit evidence."})
+    assert r.status_code == 200
+    sent = pp.calls_to("POST", "/v1/customer/disputes/PP-D-1001/escalate")
+    assert len(sent) == 1 and _json.loads(sent[0].content) == {"note": "Escalating to submit evidence."}
+
+
+async def test_escalate_without_link_is_409(db, settings):
+    app, c, auth, pp = await awaiting_case(db, settings)
+    async with c:
+        r = await c.post("/api/cases/PP-D-1001/escalate", headers=auth, json={"note": "x"})
+    assert r.status_code == 409
+
+
+async def test_submitted_case_counts_as_open(db, settings):
+    app, c, auth, _ = await awaiting_case(db, settings)
+    await dbmod.execute(db, "UPDATE cases SET state = 'SUBMITTED'")
+    async with c:
+        m = (await c.get("/api/metrics", headers=auth)).json()
+    assert m["open_cases"] == 1 and m["awaiting_paypal"] == 1
