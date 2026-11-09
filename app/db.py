@@ -7,7 +7,10 @@ SCHEMA = Path(__file__).with_name("schema.sql")
 
 
 async def open_pool(url: str) -> AsyncConnectionPool:
-    pool = AsyncConnectionPool(url, kwargs={"row_factory": dict_row, "autocommit": True}, open=False)
+    # check: verify each connection before use (Neon suspends idle databases and closes connections);
+    # max_idle: retire idle connections before Neon's ~5 minute suspend.
+    pool = AsyncConnectionPool(url, kwargs={"row_factory": dict_row, "autocommit": True}, open=False,
+                               check=AsyncConnectionPool.check_connection, max_idle=240)
     await pool.open()
     return pool
 

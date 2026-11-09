@@ -45,3 +45,15 @@ async def test_receipt_events_append_only(db):
         await dbmod.execute(db, "DELETE FROM receipt_events")
     rows = await dbmod.fetch(db, "SELECT type FROM receipt_events")
     assert rows == [{"type": "MANDATE_CREATED"}]
+
+
+async def test_pool_survives_server_closing_idle_connections(db):
+    """Neon suspends idle databases and closes pooled connections; the next query must still work."""
+    await dbmod.fetchrow(db, "SELECT 1 AS ok")
+    await dbmod.execute(db, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                            "WHERE datname = current_database() AND pid <> pg_backend_pid()")
+    async with db.connection() as conn:  # the connection that ran the terminate is now fine; kill it too
+        await conn.execute("SELECT 1")
+    await dbmod.execute(db, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                            "WHERE datname = current_database() AND pid <> pg_backend_pid()")
+    assert (await dbmod.fetchrow(db, "SELECT 1 AS ok"))["ok"] == 1
