@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -84,6 +85,7 @@ def database_url():
         except Exception:
             if attempt == 2:
                 raise
+            time.sleep(10)  # give crash recovery time to finish before the next start attempt
 
 
 @pytest.fixture
