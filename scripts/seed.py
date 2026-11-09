@@ -1,4 +1,4 @@
-"""Idempotent demo seed: 12 catalog products and 120 simulated historical transactions (1 disputed, 0.83%).
+"""Idempotent demo seed: 12 catalog products and 120 simulated historical transactions (none disputed).
 
 Usage (repo root): uv run --env-file .env python scripts/seed.py
 History rows are marked simulated=true and the UI labels them "simulated history".
@@ -40,9 +40,10 @@ async def main():
                          sku, name, desc, price, cost, json.dumps(attrs))
     if (await db.fetchrow(pool, "SELECT count(*) AS n FROM history_txns"))["n"] == 0:
         rng, now = random.Random(7), datetime.now(timezone.utc)
-        for i in range(120):
+        # Simulated sales only; the dispute rate comes from real sandbox disputes.
+        for _ in range(120):
             await db.execute(pool, "INSERT INTO history_txns (at, amount, disputed, simulated) VALUES (%s, %s, %s, true)",
-                             now - timedelta(days=rng.uniform(1, 89)), rng.choice([24, 36, 42, 56, 64, 78]), i == 0)
+                             now - timedelta(days=rng.uniform(1, 89)), rng.choice([24, 36, 42, 56, 64, 78]), False)
     n = await db.fetchrow(pool, "SELECT (SELECT count(*) FROM products) AS p, (SELECT count(*) FROM history_txns) AS h")
     print(f"seeded: {n['p']} products, {n['h']} simulated history transactions")
     print("next: create orders through the MCP buyer agent or POST /api/mandates, approve them in the PayPal sandbox, "
