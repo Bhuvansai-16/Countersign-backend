@@ -156,3 +156,16 @@ async def test_lifespan_sets_postgres_checkpointer(database_url, settings):
     app = create_app(replace(settings, database_url=database_url))
     async with app.router.lifespan_context(app):
         assert type(app.state.cs.checkpointer).__name__ == "AsyncPostgresSaver"
+
+
+async def test_approve_submits_without_another_model_call(db, settings):
+    """Submitting is the last step: the seller's Approve should not wait for another LLM round trip."""
+    state, pp, amount = await setup_case(db, settings)
+    model = ScriptedModel(steps=happy_path(amount))
+    await ag.run_case(state, "PP-D-1001", model=model)
+    calls_before = model.calls
+    case = await dbmod.fetchrow(db, "SELECT payload_hash FROM cases")
+    await dbmod.execute(db, "INSERT INTO approvals (dispute_id, user_id, action, payload_hash) VALUES ('PP-D-1001','seller','MAKE_OFFER',%s)",
+                        case["payload_hash"])
+    assert await ag.resume_case(state, "PP-D-1001", {"type": "approve"}, model=model) == "SUBMITTED"
+    assert model.calls == calls_before

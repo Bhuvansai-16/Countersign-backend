@@ -149,7 +149,10 @@ def make_tools(state, dispute_id: str, redactor: Redactor) -> list[StructuredToo
 
     fns = (get_case_facts, get_order_evidence, verify_receipt, compute_economics, load_playbook,
            check_draft, build_evidence_pack, submit_dispute_response)
-    return [StructuredTool.from_function(coroutine=f, name=f.__name__, description=f.__doc__) for f in fns]
+    # The submit tool returns directly: once PayPal has the response there is nothing left for the model to do,
+    # so the seller's Approve does not wait for another LLM round trip.
+    return [StructuredTool.from_function(coroutine=f, name=f.__name__, description=f.__doc__,
+                                         return_direct=f is submit_dispute_response) for f in fns]
 
 
 def build_agent(state, dispute_id: str, model=None):
