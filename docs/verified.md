@@ -111,3 +111,22 @@ _2026-11-09._ Dev data copied from the embedded Postgres to Neon (Postgres 18, A
 `pg_dump --column-inserts` loaded through psycopg (the bundled psql has no SSL). `DATABASE_URL` now points at Neon;
 tests still use the embedded Postgres. Gotcha: the dump's `set_config('search_path', '')` leaked into a pooled Neon
 session; fixed with `RESET search_path`. Backend health OK on Neon.
+
+## Live dispute loop (Resolution Center path) - PASS up to submission; adjudication BLOCKED
+
+_2026-11-09, US app, Neon DB, sarvam-105b._
+1. Buyer A filed "item not as described / different colour" on the $84 linen-throw payment in the sandbox Resolution
+   Center (buyer txn `0HM33932PV627220S`) -> dispute `PP-R-EIX-10197517`, `OPEN`/`INQUIRY`, mapped to our capture
+   `3L906348KK120212Y` and receipt `rcpt_68bf79004ca5cdd170749995`.
+2. `scripts/ingest_dispute.py` -> triage + Deep Agent: receipt STRONG (live custom_id match), decision FIGHT,
+   draft passed the self-check, case `AWAITING_APPROVAL`.
+3. Inquiry stage offered only `make_offer`, `send_message`, `accept_claim`, `escalate`. Seller escalated via the
+   dispute's `escalate` link -> after ~150 s `WAITING_FOR_SELLER_RESPONSE`/`CHARGEBACK` with `provide_evidence`.
+4. Seller clicked Approve in the console -> `POST .../provide-evidence` (multipart, evidence PDF) **200 OK**; approval
+   consumed once; case `SUBMITTED`. PayPal moved the dispute to `UNDER_REVIEW` (links: `provide_supporting_info`).
+5. Sandbox `adjudicate` (no link offered) -> 400 `ACTION_NOT_ALLOWED_IN_CURRENT_DISPUTE_STATE`. Outcome left to PayPal;
+   the poller records WON/LOST when the dispute resolves.
+
+Rel names confirmed: `provide_evidence`, `make_offer`, `accept_claim`, `escalate`, `send_message` (match ACTION_REL).
+Note: the demo store's simulated history includes one disputed row, so this real dispute pushed the 90-day rate to
+1.6% (high-volume fee $30, 3-day window); adjust seed history if the demo should stay under 1%.
