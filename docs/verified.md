@@ -97,3 +97,17 @@ Confirm on `http://localhost:3000/confirm/rcpt_cc9302e5a416b4bc619167c7` created
 `GET /api/receipts/{id}/verify` read the order back from PayPal: `custom_id` = `cs1:` + 64 hex (68 chars) accepted and
 returned unchanged; chain_ok, seal_ok, sig_ok, custom_id_match all true; strength WEAK until the buyer approves
 (PAYPAL_APPROVED) and the order is captured. Buyer approval, capture and tracking (rest of S1) still to run.
+
+## S3a: create a sandbox dispute via API (PayPal-Auth-Assertion) - FAIL
+
+_2026-11-09, US app._ `POST /v1/customer/disputes` with an unsigned `PayPal-Auth-Assertion` (`iss` = client ID, `email` =
+Buyer A) for capture `3L906348KK120212Y` returned `invalid_request: No permissions to set target_client_id`.
+The app lacks third-party (act-on-behalf) permission. Decision: create demo disputes as the buyer in the sandbox
+Resolution Center (fallback c). The 4 captured US orders remain undisputed and usable.
+
+## Database moved to Neon - PASS
+
+_2026-11-09._ Dev data copied from the embedded Postgres to Neon (Postgres 18, AWS us-east-2) with
+`pg_dump --column-inserts` loaded through psycopg (the bundled psql has no SSL). `DATABASE_URL` now points at Neon;
+tests still use the embedded Postgres. Gotcha: the dump's `set_config('search_path', '')` leaked into a pooled Neon
+session; fixed with `RESET search_path`. Backend health OK on Neon.
