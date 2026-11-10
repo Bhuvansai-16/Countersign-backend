@@ -86,6 +86,15 @@ async def test_run_pauses_before_write(db, settings):
     assert action_posts(pp) == []
 
 
+async def test_empty_model_reply_is_nudged_to_continue(db, settings):
+    state, pp, amount = await setup_case(db, settings)
+    steps = happy_path(amount)
+    steps.insert(4, AIMessage(content=""))  # the model goes silent after gathering facts
+    model = ScriptedModel(steps=steps)
+    assert await ag.run_case(state, "PP-D-1001", model=model) == "AWAITING_APPROVAL"
+    assert action_posts(pp) == []
+
+
 async def test_submit_without_saved_draft_needs_attention(db, settings):
     state, pp, _ = await setup_case(db, settings)
     model = ScriptedModel(steps=[call("get_case_facts"),

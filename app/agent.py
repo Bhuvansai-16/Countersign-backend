@@ -8,6 +8,7 @@ The only write tool is gated twice: Deep Agents' interrupt_on pauses before it r
 import uuid
 
 from deepagents import create_deep_agent
+from langchain_core.messages import AIMessage
 from langchain_core.tools import StructuredTool
 from langgraph.types import Command
 from psycopg.types.json import Jsonb
@@ -20,6 +21,7 @@ from app.pdf import build_evidence_pdf
 from app.pii import Redactor
 
 SUBMIT_TOOL = "submit_dispute_response"
+NUDGE = "Continue: write the draft with build_evidence_pack, then call submit_dispute_response with its payload_hash."
 
 SYSTEM_PROMPT = """You are a dispute analyst for a small PayPal seller. You prepare the seller's response to one PayPal dispute.
 
@@ -215,6 +217,11 @@ async def run_case(state, dispute_id: str, force: bool = False, model=None) -> s
         agent = build_agent(state, dispute_id, model)
         result = await agent.ainvoke({"messages": [{"role": "user", "content": f"Handle PayPal dispute {dispute_id}."}]},
                                      config=_config(thread_id))
+        for _ in range(2):  # reasoning models sometimes return an empty reply mid-case; nudge instead of giving up
+            last = (result.get("messages") or [None])[-1]
+            if result.get("__interrupt__") or not isinstance(last, AIMessage) or last.content or last.tool_calls:
+                break
+            result = await agent.ainvoke({"messages": [{"role": "user", "content": NUDGE}]}, config=_config(thread_id))
         return await _after(state, dispute_id, result, rejected=False)
     except Exception as exc:  # LLM errors, tool errors, rate limits: never leave a case stuck in ANALYZING
         return await _fail(state, dispute_id, exc)
