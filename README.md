@@ -8,7 +8,7 @@ order's `custom_id` *before payment*, so PayPal's own record carries the commitm
 LangChain Deep Agent pulls the order, verifies the receipt against PayPal, prices fight / offer / accept, and drafts the
 response. **Nothing reaches PayPal until the seller approves.**
 
-- Demo video: https://youtu.be/wKxl8Abr4Gw
+- Demo video: https://youtu.be/MLhWkL7F9A0
 - Live app (sandbox): https://countersign-black.vercel.app (shopper: no login; merchant console: `/login`)
 - API (sandbox): https://countersign-api-z0wu.onrender.com · OpenAPI at `/docs` and `/openapi.json`
 - Frontend source: https://github.com/Bhuvansai-16/Countersign
