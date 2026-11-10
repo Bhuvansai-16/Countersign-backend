@@ -182,6 +182,12 @@ async def _after(state, dispute_id: str, result: dict, rejected: bool) -> str:
     interrupts = result.get("__interrupt__")
     if interrupts:
         pending = interrupts[0].value["action_requests"][0]
+        case = await _case(state, dispute_id)
+        if not case["draft"] or case["payload_hash"] != (pending.get("args") or {}).get("payload_hash"):
+            # The model asked to submit something the seller cannot review: never show it as awaiting approval.
+            await dbmod.execute(state.pool, "UPDATE cases SET state = 'NEEDS_ATTENTION', error = %s, updated_at = now() "
+                                "WHERE dispute_id = %s", "agent asked to submit without a saved, checked draft", dispute_id)
+            return "NEEDS_ATTENTION"
         await dbmod.execute(state.pool, "UPDATE cases SET state = 'AWAITING_APPROVAL', pending_action = %s, updated_at = now() "
                             "WHERE dispute_id = %s", Jsonb(pending), dispute_id)
         return "AWAITING_APPROVAL"

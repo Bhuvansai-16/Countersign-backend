@@ -269,7 +269,8 @@ ID_RE = re.compile(r"\b(?=[A-Z0-9-]*\d)[A-Z0-9-]{8,}\b")
 
 def check_draft(draft: Draft, evidence: list[dict], policy_ids: set[str], economics: dict) -> list[str]:
     """Problems with a draft; empty means it may go to the seller. economics = effective decision (override applied)."""
-    corpus = json.dumps([e["data"] for e in evidence] + [e["summary"] for e in evidence], default=str)
+    # Amounts Countersign computed itself (offer, fee) are facts too, so economics joins the evidence corpus.
+    corpus = json.dumps([e["data"] for e in evidence] + [e["summary"] for e in evidence] + [economics], default=str)
     evidence_ids = {e["id"] for e in evidence}
     text = draft.note + " " + " ".join(f"{s.heading} {s.text}" for s in draft.sections)
     problems = []

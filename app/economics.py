@@ -124,7 +124,9 @@ def decide(ci: CaseInputs, priors: Priors = Priors()) -> dict:
         "due_at": iso_z(due_at),
         "hours_left": hours_left,
         "ev": {"fight": _money(fight), "offer": _money(offer), "accept": _money(accept)},
-        "offer": {"offer_type": "REFUND_WITH_RETURN" if ci.reason == "SNAD" else "REFUND", "amount": _money(offer_amount)},
+        # ponytail: always a partial refund (buyer keeps the item). REFUND_WITH_RETURN needs the merchant's
+        # return_shipping_address (PayPal 400 MISSING_RETURN_SHIPPING_ADDRESS); add it when a return address is configured.
+        "offer": {"offer_type": "REFUND", "amount": _money(offer_amount)},
         "evidence_type": evidence_type,
         "assumptions": {k: (str(v) if isinstance(v, Decimal) else v) for k, v in pr.items()},
         "rules_fired": rules,

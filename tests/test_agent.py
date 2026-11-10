@@ -86,6 +86,16 @@ async def test_run_pauses_before_write(db, settings):
     assert action_posts(pp) == []
 
 
+async def test_submit_without_saved_draft_needs_attention(db, settings):
+    state, pp, _ = await setup_case(db, settings)
+    model = ScriptedModel(steps=[call("get_case_facts"),
+                                 call("submit_dispute_response", {"action": "MAKE_OFFER", "payload_hash": "a1b2" * 16})])
+    assert await ag.run_case(state, "PP-D-1001", model=model) == "NEEDS_ATTENTION"
+    case = await dbmod.fetchrow(db, "SELECT state, draft, error FROM cases")
+    assert case["draft"] is None and "draft" in case["error"]
+    assert action_posts(pp) == []
+
+
 async def test_approve_with_approval_submits_once(db, settings):
     state, pp, amount = await setup_case(db, settings)
     model = ScriptedModel(steps=happy_path(amount))

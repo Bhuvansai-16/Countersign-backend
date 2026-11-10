@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from psycopg.types.json import Jsonb
 
 from app import agent as ag
 from app import db as dbmod
@@ -34,11 +35,17 @@ def agent_runs(monkeypatch):
     runs = []
 
     class FakeAgent:
-        async def ainvoke(self, *a, **kw):
-            runs.append(1)
-            return {"__interrupt__": [SimpleNamespace(value={"action_requests": [{"name": ag.SUBMIT_TOOL, "args": {}}]})]}
+        def __init__(self, state, dispute_id):
+            self.state, self.dispute_id = state, dispute_id
 
-    monkeypatch.setattr(ag, "build_agent", lambda state, dispute_id, model=None: FakeAgent())
+        async def ainvoke(self, *a, **kw):
+            runs.append(1)  # like the real agent: save a checked draft, then pause before submitting it
+            await dbmod.execute(self.state.pool, "UPDATE cases SET draft = %s, payload_hash = %s WHERE dispute_id = %s",
+                                Jsonb({"action": "MAKE_OFFER"}), "a" * 64, self.dispute_id)
+            pending = {"name": ag.SUBMIT_TOOL, "args": {"payload_hash": "a" * 64}}
+            return {"__interrupt__": [SimpleNamespace(value={"action_requests": [pending]})]}
+
+    monkeypatch.setattr(ag, "build_agent", lambda state, dispute_id, model=None: FakeAgent(state, dispute_id))
     return runs
 
 

@@ -42,10 +42,10 @@ def test_g3_snad_strong_receipt_constraints_fight():
     assert d["decision"] == "FIGHT"
 
 
-def test_g4_snad_damaged_offer_with_return():
+def test_g4_snad_damaged_offer_partial_refund():
     d = decide(ci(reason="SNAD", amount=Decimal("60.00"), tracking_delivered=True))
     assert d["decision"] == "OFFER"
-    assert d["offer"] == {"offer_type": "REFUND_WITH_RETURN", "amount": "24.00"}
+    assert d["offer"] == {"offer_type": "REFUND", "amount": "24.00"}
 
 
 def test_g5_unauthorized_strong_fight():

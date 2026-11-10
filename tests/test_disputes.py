@@ -160,6 +160,14 @@ def test_check_draft_offer_must_match_economics():
     assert any("action" in p for p in dsp.check_draft(draft(), EVIDENCE, {"POL-INR-1"}, econ))
 
 
+def test_check_draft_allows_amounts_computed_by_economics():
+    econ = {"decision": "OFFER", "offer": {"offer_type": "REFUND", "amount": "16.80"}}
+    offer = draft(action="MAKE_OFFER", evidence_type=None, note="We offer a $16.80 refund to resolve this.",
+                  sections=[{"heading": "Offer", "text": "Partial refund offered.", "refs": ["E1"]}],
+                  offer={"offer_type": "REFUND", "amount": "16.80"})
+    assert dsp.check_draft(offer, EVIDENCE, set(), econ) == []
+
+
 async def ready_case(db, settings, pp, action="PROVIDE_EVIDENCE", approve=True, dry_run=False):
     await dsp.triage(db, pp.client, "PP-D-1001", settings, now=NOW)
     d = draft() if action == "PROVIDE_EVIDENCE" else draft(action=action, evidence_type=None, note="Offer",
