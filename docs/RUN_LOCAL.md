@@ -6,7 +6,7 @@ environment is outside OneDrive. Do not start another server on a port that is a
 ## 1. Check whether the app is already running
 
 ```powershell
-Invoke-RestMethod http://localhost:8010/healthz
+Invoke-RestMethod http://localhost:8000/healthz
 ```
 
 Expected: `ok = True`, `db = True`. Open `http://localhost:3000` for the landing page, then **Open app** for shopping without login. `/login` is only for the merchant console.
@@ -23,10 +23,10 @@ $devDb = & $py -c 'import pathlib, pgserver; print(pgserver.get_server(pathlib.P
 if ($LASTEXITCODE -ne 0) { throw 'Database is still recovering; retry the previous command before continuing.' }
 & $py -m dotenv -f .env set DATABASE_URL $devDb
 
-& $py -m uvicorn app.main:build --factory --env-file .env --loop asyncio:SelectorEventLoop --host 127.0.0.1 --port 8010
+& $py -m uvicorn app.main:build --factory --env-file .env --loop asyncio:SelectorEventLoop --host 127.0.0.1 --port 8000
 ```
 
-Leave this window open. Expected: `Application startup complete` and a listener on port 8010.
+Leave this window open. Expected: `Application startup complete` and a listener on port 8000.
 The embedded database may exceed its initial 10-second startup timeout during crash recovery; retry the database
 command once recovery has finished. Do not delete or reinitialize its data directory.
 
@@ -34,7 +34,7 @@ command once recovery has finished. Do not delete or reinitialize its data direc
 
 ```powershell
 Set-Location 'C:\Users\Bhuvansai\OneDrive\Documents\Paypalhack\Countersign'
-$env:NEXT_PUBLIC_API_BASE = 'http://localhost:8010'
+$env:NEXT_PUBLIC_API_BASE = 'http://localhost:8000'
 node node_modules/next/dist/bin/next dev --port 3000
 ```
 
@@ -46,7 +46,7 @@ The machine's roaming `npm` / `npx` shims are broken; the direct project executa
 1. Open `http://localhost:3000/confirm/rcpt_68bf79004ca5cdd170749995`.
 2. Review the sage throw: item $78 + shipping $6 = **$84**, under the **$90** cap.
 3. This order is already paid: expect **Paid. Thank you!**, capture `3L906348KK120212Y`.
-4. Open `http://localhost:8010/verify/rcpt_68bf79004ca5cdd170749995` and expect **STRONG** with matching integrity checks.
+4. Open `http://localhost:8000/verify/rcpt_68bf79004ca5cdd170749995` and expect **STRONG** with matching integrity checks.
 
 To repeat the flow, create a **fresh mandate** in step 5, open its link, click **Confirm this purchase**, then
 **Pay with PayPal**. Sign in with Buyer A: `sb-v3mdl53715004@personal.example.com`.

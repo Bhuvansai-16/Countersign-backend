@@ -51,9 +51,9 @@ uv sync
 uv run pytest -q                                  # unit tests; embedded Postgres via pgserver, no setup needed
 uv run --env-file .env pytest -m llm -v           # real-LLM golden eval (~4 min/case, Sarvam credits)
 uv run --env-file .env python scripts/seed.py     # 12 products + 120 simulated history rows (idempotent)
-# API: port 8000 is taken by an unrelated system-python process, so use 8010; Windows needs the selector loop
-PUBLIC_BASE_URL=http://localhost:8010 uv run --env-file .env uvicorn app.main:build --factory --loop asyncio:SelectorEventLoop --port 8010
-PUBLIC_BASE_URL=http://localhost:8010 uv run --env-file .env python scripts/buyer_agent.py "Buy one linen throw in sage under 90 dollars"
+# API on the standard port 8000; Windows needs the selector loop
+uv run --env-file .env uvicorn app.main:build --factory --loop asyncio:SelectorEventLoop --port 8000
+uv run --env-file .env python scripts/buyer_agent.py "Buy one linen throw in sage under 90 dollars"
 ```
 
 - Local DBs are embedded Postgres 16 (`pgserver`): tests use `~/.countersign-pg`, dev uses `~/.countersign-pg-dev`.
@@ -77,7 +77,7 @@ The tested source buy link displayed a security check; recognized checks now ret
 
 1. **Continue from the captured US order.** The US Business account `sb-iaenv53656392@business.example.com` and two US Personal
    accounts now exist. The "Countersign" merchant app is linked to that business account; Customer disputes and
-   Transaction search are enabled and its credentials are in the ignored `.env`. API restarted on 8010; frontend on
+   Transaction search are enabled and its credentials are in the ignored `.env`. API restarted on 8000; frontend on
    3000. `http://localhost:3000/confirm/rcpt_68bf79004ca5cdd170749995` now shows **Paid. Thank you!** ($84 sage throw,
    cap $90). The owner approved as Buyer A `sb-v3mdl53715004@personal.example.com`. US order `2NG228202S383952F` is
    **COMPLETED**, capture `3L906348KK120212Y`; live receipt verification is **STRONG**, all four integrity checks true.
